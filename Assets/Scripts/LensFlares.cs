@@ -25,7 +25,15 @@ public class LensFlares : MonoBehaviour
         }
     }
 
+    static class Uniforms
+    {
+        public static readonly int _Threshold = Shader.PropertyToID("_Threshold");
+    }
+
     public Light light;
+
+    public float threshold;
+    public float softKnee;
 
     private Shader m_Shader;
     private Shader shader
@@ -60,6 +68,26 @@ public class LensFlares : MonoBehaviour
         }
     }
 
+    static Texture2D m_WhiteTexture;
+    public static Texture2D whiteTexture
+    {
+        get
+        {
+            if (m_WhiteTexture == null)
+            {
+                m_WhiteTexture = new Texture2D(1, 1, TextureFormat.ARGB32, false);
+                m_WhiteTexture.SetPixel(0, 0, Color.white);
+                m_WhiteTexture.Apply();
+            }
+
+            return m_WhiteTexture;
+        }
+    }
+
+    const int k_MaxPyramidBlurLevel = 16;
+    readonly RenderTexture[] m_BlurBuffer1 = new RenderTexture[k_MaxPyramidBlurLevel];
+    readonly RenderTexture[] m_BlurBuffer2 = new RenderTexture[k_MaxPyramidBlurLevel];
+
     void OnDisable()
     {
         GraphicsUtils.Destroy(m_Material);
@@ -69,7 +97,18 @@ public class LensFlares : MonoBehaviour
     [ImageEffectOpaque]
     void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        
-        Graphics.Blit(source, destination, material);
+        // Prefiltering parameters
+        float lthresh = Mathf.GammaToLinearSpace(this.threshold);
+        float knee = lthresh * this.softKnee + 1e-5f;
+        var threshold = new Vector4(lthresh, lthresh - knee, knee * 2f, 0.25f / knee);
+        material.SetVector(Uniforms._Threshold, threshold);
+
+        int tw = Screen.width / 2;
+        int th = Screen.height / 2;
+
+        var prefilter = RenderTexture.GetTemporary(tw, th, 0, source.format);
+        Graphics.Blit(source, prefilter, material, 0);
+
+        Graphics.Blit(prefilter, destination);
     }
 }
