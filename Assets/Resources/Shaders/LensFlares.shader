@@ -18,5 +18,29 @@
             #pragma fragment FragPrefilter13
             ENDCG
         }
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragDownsample13
+            ENDCG
+        }
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleTent
+            ENDCG
+        }
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragAnamorphicBlooom
+            ENDCG
+        }
     }
 }

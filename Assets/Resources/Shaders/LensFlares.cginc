@@ -7,6 +7,10 @@ float4 _MainTex_TexelSize;
 float4 _MainTex_ST;
 
 float4 _Threshold;
+float _SampleScale;
+
+sampler2D _BloomTex;
+float4 _Bloom_Settings;
 
 struct AttributesDefault
 {
@@ -109,6 +113,45 @@ half3 DownsampleBox13Tap(sampler2D tex, float2 uv, float2 texelSize)
     return o;
 }
 
+// 9-tap bilinear upsampler (tent filter)
+half3 UpsampleTent(sampler2D tex, float2 uv, float2 texelSize, float sampleScale)
+{
+    float4 d = texelSize.xyxy * float4(1.0, 1.0, -1.0, 0.0) * sampleScale;
+
+    half3 s;
+    s = tex2D(tex, uv - d.xy).rgb;
+    s += tex2D(tex, uv - d.wy).rgb * 2.0;
+    s += tex2D(tex, uv - d.zy).rgb;
+
+    s += tex2D(tex, uv + d.zw).rgb * 2.0;
+    s += tex2D(tex, uv).rgb * 4.0;
+    s += tex2D(tex, uv + d.xw).rgb * 2.0;
+
+    s += tex2D(tex, uv + d.zy).rgb;
+    s += tex2D(tex, uv + d.wy).rgb * 2.0;
+    s += tex2D(tex, uv + d.xy).rgb;
+
+    return s * (1.0 / 16.0);
+}
+
+half3 UpsampleTentH(sampler2D tex, float2 uv, float2 texelSize, float sampleScale)
+{
+    float2 d = texelSize * float2(1.0, 0.) * sampleScale * _Bloom_Settings.z;
+
+    half3 s;
+    s = tex2D(tex, uv - d).rgb;
+    s = max(s, tex2D(tex, uv).rgb);
+    s = max(s, tex2D(tex, uv + d).rgb);
+
+    return s;
+}
+
+half4 Combine(half3 bloom, float2 uv)
+{
+    half3 color = tex2D(_BloomTex, uv).rgb;
+    return half4(bloom + color, 1.0);
+}
+
 // Clamp HDR value within a safe range
 half3 SafeHDR(half3 c)
 {
@@ -130,4 +173,27 @@ half4 FragPrefilter13(VaryingsDefault i) : SV_Target
 {
     half3 color = DownsampleBox13Tap(_MainTex, i.texcoord, _MainTex_TexelSize.xy);
     return Prefilter(SafeHDR(color), i.texcoord);
+}
+
+half4 FragDownsample13(VaryingsDefault i) : SV_Target
+{
+    half3 color = DownsampleBox13Tap(_MainTex, i.texcoord, _MainTex_TexelSize.xy);
+    return half4(color, 1.0);
+}
+
+half4 FragUpsampleTent(VaryingsDefault i) : SV_Target
+{
+    // half3 bloom = UpsampleTent(_MainTex, i.texcoord, _MainTex_TexelSize.xy, _SampleScale);
+    half3 bloom = UpsampleTent(_MainTex, i.texcoord, _MainTex_TexelSize.xy, _SampleScale);
+    return Combine(bloom, i.texcoord);
+}
+
+half4 FragAnamorphicBlooom(VaryingsDefault i) : SV_Target
+{
+    half4 sceneColor = tex2D(_MainTex, i.texcoord);
+    float2 bloomSample = i.texcoord;
+
+    half4 bloomColor = tex2D(_BloomTex, bloomSample);
+    bloomColor *= _Bloom_Settings.y;
+    return sceneColor + bloomColor;
 }
