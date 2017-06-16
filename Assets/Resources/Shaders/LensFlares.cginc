@@ -12,6 +12,8 @@ float _SampleScale;
 sampler2D _BloomTex;
 float4 _Bloom_Settings;
 
+float4 _FlareOffsetAndScale;
+
 struct AttributesDefault
 {
     float3 vertex : POSITION;
@@ -29,6 +31,19 @@ VaryingsDefault VertDefault(AttributesDefault v)
     VaryingsDefault o;
     o.vertex = UnityObjectToClipPos(v.vertex);
     o.texcoord = v.uv;
+    return o;
+}
+
+VaryingsDefault VertDefaultBlit(AttributesDefault v)
+{
+    VaryingsDefault o;
+
+    o.vertex = float4(v.vertex, 1.);
+    o.vertex.x *= _FlareOffsetAndScale.w;
+    o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
+    o.vertex.xy += _FlareOffsetAndScale.xy;
+    o.texcoord = v.uv;
+
     return o;
 }
 

@@ -33,7 +33,7 @@ public class LensFlares : MonoBehaviour
         public static readonly int _Bloom_Settings = Shader.PropertyToID("_Bloom_Settings");
     }
 
-    public Light light;
+    public Light mainLight;
 
     public float threshold;
     public float softKnee;
