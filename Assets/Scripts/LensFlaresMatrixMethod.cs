@@ -31,6 +31,10 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     static class Uniforms
     {
         public static readonly int _FlareOffsetAndScale = Shader.PropertyToID("_FlareOffsetAndScale");
+        public static readonly int _AperatureTexture = Shader.PropertyToID("_AperatureTexture");
+        public static readonly int _AperatureEdges = Shader.PropertyToID("_AperatureEdges");
+        public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
+        public static readonly int _Intensity = Shader.PropertyToID("_Intensity");
     }
 
     [Serializable]
@@ -49,6 +53,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     public Light mainLight;
 
+    public Texture2D aperatureTexture;
+
     [Range(0f, 1f)]
     public float aparatureLocation = .5f;
 
@@ -56,10 +62,16 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     public Lens[] lensSystem;
 
+    [Range(4, 10)]
+    public int aperatureGons;
+
+    [Range(0f, 1f)]
+    public float smoothing;
+
     const int k_MaxPyramidSize = 16;
 
     Camera m_Camera;
-   Camera _camera
+    Camera _camera
     {
         get
         {
@@ -204,6 +216,10 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         float Center = (H_p1 + H_p2) / 2;
         float Radius = Mathf.Abs(H_p1 - H_p2) / 2;
 
+        float entrancePupil = aparatureHeight / Mathf.Abs(Ma[0, 0]);
+        float intensity = Mathf.Sqrt(Mathf.Abs(H_e1 - H_e2)) / Mathf.Sqrt(2f * entrancePupil);
+        intensity /= Mathf.Sqrt(2f * 16f);
+
         Vector4 offsetAndScale = new Vector4(0f, 0f, 1f, Screen.height / (float)Screen.width);
         offsetAndScale.z = Radius;
 
@@ -216,17 +232,27 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         offsetAndScale.x = Center * -directionInPlane.x;
         offsetAndScale.y = Center * -directionInPlane.y;
 
-        Debug.Log(directionInPlane);
+        material.SetInt(Uniforms._AperatureEdges, aperatureGons);
+
+        material.SetFloat(Uniforms._Smoothing, smoothing * .2f);
+        material.SetFloat(Uniforms._Intensity, intensity);
+        Debug.Log(intensity);
 
         material.SetVector(Uniforms._FlareOffsetAndScale, offsetAndScale);
+
+        material.SetTexture(Uniforms._AperatureTexture, aperatureTexture);
 
         material.SetPass(4);
         Graphics.DrawMeshNow(quad, Matrix4x4.identity, 4);
     }
 
-    Texture2D RenderateRegularPolygonAparatureTexture(int sides, int resolution)
+    Texture2D GeneratePolygonAparatureTexture(int sides, int resolution, float smoothing)
     {
-        Texture2D texture = new Texture2D(resolution, resolution, TextureFormat.ARGB32, true);
+        RenderTexture aperatureTexture = RenderTexture.GetTemporary(resolution, resolution, 0, RenderTextureFormat.ARGB32);
+
+        // Graphics.Blit(null, aperatureTexture, material, 5);
+
+        Texture2D texture = null;
         return texture;
     }
 }
