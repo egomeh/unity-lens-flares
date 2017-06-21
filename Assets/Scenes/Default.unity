@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028417, g: 0.22571458, b: 0.30692312, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028334, g: 0.2257134, b: 0.30692226, a: 1}
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
@@ -205,12 +205,54 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   mainLight: {fileID: 747664051}
+  distanceToFirstInterface: 1.28
   aperatureTexture: {fileID: 2800000, guid: 89b73f8fb57d0f24da9d4b541488b3e2, type: 3}
-  aparatureLocation: 0.422
-  aparatureHeight: 5
-  lensSystem: []
-  aperatureGons: 6
-  smoothing: 0.49
+  interfacesBeforeAperature:
+  - distanceToNext: 7.7
+    flat: 0
+    radius: 30.81
+    air: 0
+    refractiveIndex: 1.652
+  - distanceToNext: 1.8
+    flat: 0
+    radius: -89.35
+    air: 0
+    refractiveIndex: 1.603
+  - distanceToNext: 3.52
+    flat: 0
+    radius: 580.35
+    air: 1
+    refractiveIndex: 0
+  - distanceToNext: 1.85
+    flat: 0
+    radius: -30.63
+    air: 0
+    refractiveIndex: 1.643
+  - distanceToNext: 4.18
+    flat: 0
+    radius: 28.34
+    air: 1
+    refractiveIndex: 0
+  aparatureHeight: 11.6
+  distanceToNextInterface: 10
+  aperatureGons: 8
+  smoothing: 0.433
+  interfacesAfterAperature:
+  - distanceToNext: 1.85
+    flat: 1
+    radius: 0
+    air: 0
+    refractiveIndex: 1.581
+  - distanceToNext: 7.72
+    flat: 0
+    radius: 32.19
+    air: 0
+    refractiveIndex: 1.694
+  - distanceToNext: 81.857
+    flat: 0
+    radius: -52.99
+    air: 1
+    refractiveIndex: 0
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
