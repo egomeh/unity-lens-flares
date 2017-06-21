@@ -205,7 +205,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   mainLight: {fileID: 747664051}
-  distanceToFirstInterface: 1.28
+  distanceToFirstInterface: 50
   aperatureTexture: {fileID: 2800000, guid: 89b73f8fb57d0f24da9d4b541488b3e2, type: 3}
   interfacesBeforeAperature:
   - distanceToNext: 7.7
@@ -233,10 +233,10 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aparatureHeight: 11.6
+  aparatureHeight: 1
   distanceToNextInterface: 10
-  aperatureGons: 8
-  smoothing: 0.433
+  aperatureGons: 7
+  smoothing: 0.963
   interfacesAfterAperature:
   - distanceToNext: 1.85
     flat: 1
