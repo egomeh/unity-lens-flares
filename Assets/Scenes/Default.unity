@@ -167,7 +167,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 747664050}
   m_LocalRotation: {x: 0.40821788, y: -0.23456968, z: 0.10938163, w: 0.8754261}
-  m_LocalPosition: {x: 0, y: 3, z: 0}
+  m_LocalPosition: {x: 93, y: 66, z: -160}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -205,7 +205,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   mainLight: {fileID: 747664051}
-  distanceToFirstInterface: 50
+  distanceToFirstInterface: 10
   aperatureTexture: {fileID: 2800000, guid: 89b73f8fb57d0f24da9d4b541488b3e2, type: 3}
   interfacesBeforeAperature:
   - distanceToNext: 7.7
@@ -233,12 +233,12 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aparatureHeight: 1
+  aparatureHeight: 11.6
   distanceToNextInterface: 10
   aperatureGons: 7
   smoothing: 0.963
   interfacesAfterAperature:
-  - distanceToNext: 1.85
+  - distanceToNext: 3.85
     flat: 1
     radius: 0
     air: 0

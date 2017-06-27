@@ -37,6 +37,10 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _AperatureEdges = Shader.PropertyToID("_AperatureEdges");
         public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
         public static readonly int _Intensity = Shader.PropertyToID("_Intensity");
+        public static readonly int _LineColor = Shader.PropertyToID("_LineColor");
+        public static readonly int _Line = Shader.PropertyToID("_Axis");
+        public static readonly int _LightPositionIndicator = Shader.PropertyToID("_LightPositionIndicator");
+        public static readonly int _LightPositionColor = Shader.PropertyToID("_LightPositionColor");
     }
 
     const float refractiveIndexAir = 1.000293f;
@@ -198,6 +202,46 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
     }
 
+    void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        material.SetColor(Uniforms._LineColor, Color.red);
+        material.SetVector(Uniforms._Line, new Vector4());
+
+        Vector2 axis = new Vector2();
+        Vector3 lightPositionScreenSpace = new Vector3();
+
+        float angleToLight = 0f;
+
+        if (mainLight.type == LightType.Point)
+        {
+            Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
+            angleToLight = Vector3.Angle(directionToLight, _camera.transform.forward);
+
+            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(mainLight.transform.position);
+        }
+        else
+        {
+            angleToLight = Vector3.Angle(-mainLight.transform.forward, _camera.transform.forward);
+
+            Vector3 distantPoint = _camera.transform.position + mainLight.transform.forward * _camera.farClipPlane;
+
+            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
+        }
+
+        axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f);
+
+        Debug.Log(axis);
+        material.SetVector(Uniforms._Line, axis);
+        material.SetVector(Uniforms._LineColor, Color.red);
+
+        Vector4 lightPositionUV = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightPositionScreenSpace.z, 0f);
+
+        material.SetVector(Uniforms._LightPositionIndicator, lightPositionUV);
+        material.SetColor(Uniforms._LightPositionColor, Color.blue);
+
+        Graphics.Blit(source, destination, material, 5);
+    }
+
     void OnPostRender()
     {
         int totalInterfaces = interfacesBeforeAperature.Length + interfacesAfterAperature.Length + 1;
@@ -280,10 +324,9 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 // reflect on j'th interface
                 // refract back to i'th interface
                 // refract from i'th interface to the aperature
-                Debug.Log("r -> " + j + " <- " + i);
+                // Debug.Log("r -> " + j + " <- " + i);
 
                 Matrix4x4 entranceToAperature = T0;
-                Matrix4x4 aperatureToSensor;
 
                 matrixOrder = matrixOrder + "T0";
 
@@ -317,12 +360,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 }
 
                 int aperatureIndex = interfacesBeforeAperature.Length;
-                aperatureToSensor = Translations[aperatureIndex] * Refractions[aperatureIndex];
+                Matrix4x4 aperatureToSensor = Translations[aperatureIndex] * Refractions[aperatureIndex];
 
                 for (int l = 0; l < interfacesAfterAperature.Length; ++l)
                 {
                     int index = aperatureIndex + 1 + l;
-                    aperatureToSensor = Translations[aperatureIndex] * Refractions[aperatureIndex] * aperatureToSensor;
+                    aperatureToSensor = Translations[index] * Refractions[index] * aperatureToSensor;
                 }
 
                 Debug.Log(matrixOrder);
@@ -332,22 +375,59 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             }
         }
 
+        Vector3 lightPositionScreenSpace = Vector3.up;
+
         float angleToLight = 0f;
 
-        if (mainLight.type == LightType.Spot)
+        if (mainLight.type == LightType.Point)
         {
             Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
             angleToLight = Vector3.Angle(directionToLight, _camera.transform.forward);
+            
+            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(mainLight.transform.position);
         }
         else
         {
             angleToLight = Vector3.Angle(-mainLight.transform.forward, _camera.transform.forward);
+
+            Vector3 distantPoint = _camera.transform.position + mainLight.transform.forward * _camera.farClipPlane;
+            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
         }
+
+        Vector2 axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
+        axis.Normalize();
+        axis.y *= -1f;
 
         angleToLight *= Mathf.Deg2Rad;
 
         foreach (var ghost in flareGhosts)
         {
+            /*
+            Theta_e = acosf(dot(E, L));
+            Axis = Project(CameraPos + L * 10000.0).Normalize();
+            H_a = GetApertureHeight();
+            foreach ghost
+                // Aperture projected onto the entrance
+                H_e1 = (H_a - ghost.M_a[1][0] * Theta_e) / ghost.M_a[0][0];
+                H_e2 = (-H_a - ghost.M_a[1][0] * Theta_e) / ghost.M_a[0][0];
+
+                // Flare quad bounds projected through the system
+                H_p1 = ((ghost.M_s * ghost.M_a) * Vector2(H_e1, Theta_e)).x;
+                H_p2 = ((ghost.M_s * ghost.M_a) * Vector2(H_e2, Theta_e)).x;
+
+                // Project on to image circle
+                H_p1 /= 21.65;
+                H_p2 /= 21.65;
+
+                Center = (H_p1 + H_p2) / 2;
+                Radius = abs(H_p1 - H_p2) / 2;
+
+                Transform = CreateScale(Radius, Radius * AspectRatio());
+                Transform *= CreateTranslation(Axis * Center);
+
+                RenderFlare(Transform);
+             */
+
             Matrix4x4 Ma = ghost.ma;
             Matrix4x4 Ms = ghost.ms;
 
@@ -359,7 +439,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             float[,] MsMa = new float[2, 2]
             {
                 {Ms[0, 0] * Ma[0, 0] + Ms[0, 1] * Ma[1, 0], Ms[0, 0] * Ma[0, 1] + Ms[0, 1] * Ma[1, 1]},
-                {Ms[1, 0] * Ma[0, 0] + Ms[1, 1] * Ma[1, 0], Ms[1, 0] * Ma[1, 1] + Ms[1, 1] * Ma[1, 1]},
+                {Ms[1, 0] * Ma[0, 0] + Ms[1, 1] * Ma[1, 0], Ms[1, 0] * Ma[0, 1] + Ms[1, 1] * Ma[1, 1]},
             };
 
             // float H_p1 = (MsMa * new Vector2(H_e1, angleToLight)).x;
@@ -367,15 +447,16 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             Vector2 v1 = new Vector2(H_e1, angleToLight);
             Vector2 v2 = new Vector2(H_e2, angleToLight);
 
-            float H_p1 = MsMa[0, 0] * v1.x + MsMa[1, 0] * v1.y;
-            float H_p2 = MsMa[0, 0] * v2.x + MsMa[1, 0] * v2.y;
+            float H_p1 = MsMa[0, 0] * H_e1 + MsMa[0, 1] * angleToLight;
+            float H_p2 = MsMa[0, 0] * H_e2 + MsMa[0, 1] * angleToLight;
 
             // Project on to image circle
-            H_p1 /= 21.65f;
-            H_p2 /= 21.65f;
+            float sensorSize = 43.3f;
+            H_p1 /= sensorSize / 2f;
+            H_p2 /= sensorSize / 2f;
 
-            float Center = (H_p1 + H_p2) / 2;
-            float Radius = Mathf.Abs(H_p1 - H_p2) / 2;
+            float Center = (H_p1 + H_p2) / 2f;
+            float Radius = Mathf.Abs(H_p1 - H_p2) / 2f;
 
             float entrancePupil = aparatureHeight / Mathf.Abs(Ma[0, 0]);
             float intensity = Mathf.Sqrt(Mathf.Abs(H_e1 - H_e2)) / Mathf.Sqrt(2f * entrancePupil);
@@ -390,8 +471,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             Vector2 directionInPlane = _camera.worldToCameraMatrix * lightDirection;
             directionInPlane.Normalize();
 
-            offsetAndScale.x = Center * -directionInPlane.x;
-            offsetAndScale.y = Center * -directionInPlane.y;
+            offsetAndScale.x = Center * axis.x;
+            offsetAndScale.y = Center * axis.y;
 
             material.SetInt(Uniforms._AperatureEdges, aperatureGons);
 
