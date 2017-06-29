@@ -13,6 +13,7 @@ sampler2D _BloomTex;
 float4 _Bloom_Settings;
 
 float4 _FlareOffsetAndScale;
+float4x4 _FlareTransform;
 
 struct AttributesDefault
 {
@@ -39,9 +40,12 @@ VaryingsDefault VertDefaultBlit(AttributesDefault v)
     VaryingsDefault o;
 
     o.vertex = float4(v.vertex, 1.);
-    o.vertex.x *= _FlareOffsetAndScale.w;
-    o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
-    o.vertex.xy += _FlareOffsetAndScale.xy;
+    o.vertex = mul(_FlareTransform, o.vertex);
+
+    //o.vertex.x *= _FlareOffsetAndScale.w;
+    ///o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
+    //o.vertex.xy += _FlareOffsetAndScale.xy;
+
     o.texcoord = v.uv;
 
     return o;

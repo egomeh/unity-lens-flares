@@ -233,10 +233,11 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aparatureHeight: 11.6
+  apertureHeight: 0.5
   distanceToNextInterface: 10
-  aperatureGons: 7
-  smoothing: 0.963
+  fNumber: 1
+  aperatureGons: 8
+  smoothing: 0.359
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -316,8 +317,8 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: -0.048583273, y: 0.9152746, z: 0.3829247, w: 0.11524218}
+  m_LocalPosition: {x: -800.40894, y: -8941.609, z: 8242.332}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

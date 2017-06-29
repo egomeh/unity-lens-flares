@@ -33,17 +33,24 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     static class Uniforms
     {
         public static readonly int _FlareOffsetAndScale = Shader.PropertyToID("_FlareOffsetAndScale");
+        public static readonly int _FlareTransform = Shader.PropertyToID("_FlareTransform");
         public static readonly int _AperatureTexture = Shader.PropertyToID("_AperatureTexture");
+        public static readonly int _FlareTexture = Shader.PropertyToID("_FlareTexture");
         public static readonly int _AperatureEdges = Shader.PropertyToID("_AperatureEdges");
         public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
         public static readonly int _Intensity = Shader.PropertyToID("_Intensity");
+        public static readonly int _FlareColor = Shader.PropertyToID("_FlareColor");
         public static readonly int _LineColor = Shader.PropertyToID("_LineColor");
         public static readonly int _Line = Shader.PropertyToID("_Axis");
         public static readonly int _LightPositionIndicator = Shader.PropertyToID("_LightPositionIndicator");
         public static readonly int _LightPositionColor = Shader.PropertyToID("_LightPositionColor");
     }
 
-    const float refractiveIndexAir = 1.000293f;
+    const float kRefractiveIndexAir = 1.000293f;
+
+    const float kWavelengthRed = 650f;
+    const float kWavelengthGreen = 510f;
+    const float kWavelengthBlue = 475f;
 
     public Light mainLight;
 
@@ -65,7 +72,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         {
             if (air)
             {
-                return refractiveIndexAir;
+                return kRefractiveIndexAir;
             }
             return refractiveIndex;
         }
@@ -75,9 +82,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     public Lens[] interfacesBeforeAperature;
 
-    public float aparatureHeight = 5;
+    public float apertureHeight = 5;
 
     public float distanceToNextInterface = 10f;
+
+    [Range(1f, 16f)]
+    public float fNumber = 1f;
 
     [Range(4, 10)]
     public int aperatureGons;
@@ -182,26 +192,41 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     class Ghost
     {
-        Matrix4x4 m_BeforeAperature;
-        Matrix4x4 m_AfterAperature;
+        Matrix4x4 m_EntranceToAperture;
+        Matrix4x4 m_ApertureToSensor;
 
-        public Ghost(Matrix4x4 beforeAperature, Matrix4x4 afterAperature)
+        float m_N1, m_N2;
+
+        public Ghost(Matrix4x4 entranceToAperture, Matrix4x4 apertureToSensor, float n1, float n2)
         {
-            m_BeforeAperature = beforeAperature;
-            m_AfterAperature = afterAperature;
+            m_EntranceToAperture = entranceToAperture;
+            m_ApertureToSensor = apertureToSensor;
+            m_N1 = n1;
+            m_N2 = n2;
         }
 
         public Matrix4x4 ma
         {
-            get { return m_BeforeAperature; }
+            get { return m_EntranceToAperture; }
         }
 
         public Matrix4x4 ms
         {
-            get { return m_AfterAperature; }
+            get { return m_ApertureToSensor; }
+        }
+
+        public float n1
+        {
+            get { return m_N1; }
+        }
+
+        public float n2
+        {
+            get { return m_N2; }
         }
     }
 
+    /*
     void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         material.SetColor(Uniforms._LineColor, Color.red);
@@ -230,7 +255,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f);
 
-        Debug.Log(axis);
         material.SetVector(Uniforms._Line, axis);
         material.SetVector(Uniforms._LineColor, Color.red);
 
@@ -241,9 +265,51 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         Graphics.Blit(source, destination, material, 5);
     }
+    */
 
-    void OnPostRender()
+    static float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
     {
+        // Apply Snell's law to get the other angles
+        float angle2 = Mathf.Asin(n1 * Mathf.Asin(angle) / n2);
+        float angle3 = Mathf.Asin(n1 * Mathf.Asin(angle) / n3);
+ 
+        float cos1 = Mathf.Cos(angle);
+        float cos2 = Mathf.Cos(angle2);
+        float cos3 = Mathf.Cos(angle3);
+ 
+        float beta = (2.0f * Mathf.PI) / wavelength * n2 * coatingThickness * cos2;
+ 
+        // Compute the fresnel terms for the first and second interfaces for both s and p polarized
+        // light
+        float r12p = (n2 * cos1 - n1 * cos2) / (n2 * cos1 + n1 * cos2);
+        float r12p2 = r12p * r12p;
+ 
+        float r23p = (n3 * cos2 - n2 * cos3) / (n3 * cos2 + n2 * cos3);
+        float r23p2 = r23p * r23p;
+ 
+        float rp = (r12p2 + r23p2 + 2.0f * r12p * r23p * Mathf.Cos(2.0f * beta)) /
+            (1.0f + r12p2 * r23p2 + 2.0f * r12p * r23p * Mathf.Cos(2.0f * beta));
+ 
+        float r12s = (n1 * cos1 - n2 * cos2) / (n1 * cos1 + n2 * cos2);
+        float r12s2 = r12s * r12s;
+ 
+        float r23s = (n2 * cos2 - n3 * cos3) / (n2 * cos2 + n3 * cos3);
+        float r23s2 = r23s * r23s;
+ 
+        float rs = (r12s2 + r23s2 + 2.0f * r12s * r23s * Mathf.Cos(2.0f * beta)) /
+            (1.0f + r12s2 * r23s2 + 2.0f * r12s * r23s * Mathf.Cos(2.0f * beta));
+ 
+        return (rs + rp) * .5f;
+    }
+
+    void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        RenderTexture flareTexture = RenderTexture.GetTemporary(source.width, source.height, 0, source.format, RenderTextureReadWrite.Linear, 1);
+        flareTexture.name = "Flare textrue";
+
+        // Clear rendertexture, might not be needed.
+        Graphics.Blit(null, flareTexture, material, 7);
+
         int totalInterfaces = interfacesBeforeAperature.Length + interfacesAfterAperature.Length + 1;
 
         Matrix4x4[] Translations = new Matrix4x4[totalInterfaces];
@@ -262,14 +328,14 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         {
             distanceToNext = distanceToNextInterface,
             air = true,
-            refractiveIndex = refractiveIndexAir,
+            refractiveIndex = kRefractiveIndexAir,
             flat = true,
         };
 
         Matrix4x4 T0 = Matrix4x4.identity;
         T0[0, 1] = distanceToFirstInterface;
 
-        float previousRefractiveIndex = refractiveIndexAir;
+        float previousRefractiveIndex = kRefractiveIndexAir;
         for (int i = 0; i < totalInterfaces; ++i)
         {
             Matrix4x4 T = Matrix4x4.identity;
@@ -311,6 +377,13 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             previousRefractiveIndex = refractiveIndex;
         }
 
+        Matrix4x4 SystemEntranceToAperture = T0;
+
+        for (int i = 0; i < interfacesBeforeAperature.Length; ++i)
+        {
+            SystemEntranceToAperture = Translations[i] * Refractions[i] * SystemEntranceToAperture;
+        }
+
         List<Ghost> flareGhosts = new List<Ghost>();
 
         for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
@@ -326,7 +399,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 // refract from i'th interface to the aperature
                 // Debug.Log("r -> " + j + " <- " + i);
 
-                Matrix4x4 entranceToAperature = T0;
+                Matrix4x4 entranceToAperture = T0;
 
                 matrixOrder = matrixOrder + "T0";
 
@@ -334,29 +407,29 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 for (int k = 0; k < j; ++k)
                 {
                     matrixOrder = "T" + (k+1) + " R" + (k+1) + " " + matrixOrder;
-                    entranceToAperature = Translations[k] * Refractions[k] * entranceToAperature;
+                    entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
                 }
 
                 // reflect from j'th interface
                 matrixOrder = "L" + (j+1) + " " + matrixOrder;
-                entranceToAperature = Reflections[j] * entranceToAperature;
+                entranceToAperture = Reflections[j] * entranceToAperture;
 
                 // refract in reverse order from j'th interface back to the i'th interface
                 for (int k = j - 1; k > i; --k)
                 {
                     matrixOrder = "Ri" + (k+1) + " T" + (k+1) + " " + matrixOrder;
-                    entranceToAperature =  RefractionsInverse[k] * Translations[k] * entranceToAperature;
+                    entranceToAperture =  RefractionsInverse[k] * Translations[k] * entranceToAperture;
                 }
 
                 // refelct on the i'th interface
                 matrixOrder = "T" + (i+1) + " " + "Li" + (i+1) + " T" + (i+1) + " " + matrixOrder;
-                entranceToAperature = Translations[i] * ReflectionsInverse[i] * Translations[i] * entranceToAperature;
+                entranceToAperture = Translations[i] * ReflectionsInverse[i] * Translations[i] * entranceToAperture;
 
                 // refract to the aperature
                 for (int k = i + 1; k < interfacesBeforeAperature.Length; ++k)
                 {
                     matrixOrder = "T" + (k+1) + " R" + (k+1) + " " + matrixOrder;
-                    entranceToAperature = Translations[k] * Refractions[k] * entranceToAperature;
+                    entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
                 }
 
                 int aperatureIndex = interfacesBeforeAperature.Length;
@@ -368,10 +441,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                     aperatureToSensor = Translations[index] * Refractions[index] * aperatureToSensor;
                 }
 
-                Debug.Log(matrixOrder);
-                Debug.Log(entranceToAperature);
+                // Debug.Log(matrixOrder);
+                // Debug.Log(entranceToAperture);
 
-                flareGhosts.Add(new Ghost(entranceToAperature, aperatureToSensor));
+                float n1 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
+                float n2 = interfaces[i + 1].air ? kRefractiveIndexAir : interfaces[i + 1].refractiveIndex;
+                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
 
@@ -397,168 +472,76 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         Vector2 axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
         axis.Normalize();
         axis.y *= -1f;
+        axis.x *= _camera.aspect;
 
         angleToLight *= Mathf.Deg2Rad;
 
         foreach (var ghost in flareGhosts)
         {
-            /*
-            Theta_e = acosf(dot(E, L));
-            Axis = Project(CameraPos + L * 10000.0).Normalize();
-            H_a = GetApertureHeight();
-            foreach ghost
-                // Aperture projected onto the entrance
-                H_e1 = (H_a - ghost.M_a[1][0] * Theta_e) / ghost.M_a[0][0];
-                H_e2 = (-H_a - ghost.M_a[1][0] * Theta_e) / ghost.M_a[0][0];
-
-                // Flare quad bounds projected through the system
-                H_p1 = ((ghost.M_s * ghost.M_a) * Vector2(H_e1, Theta_e)).x;
-                H_p2 = ((ghost.M_s * ghost.M_a) * Vector2(H_e2, Theta_e)).x;
-
-                // Project on to image circle
-                H_p1 /= 21.65;
-                H_p2 /= 21.65;
-
-                Center = (H_p1 + H_p2) / 2;
-                Radius = abs(H_p1 - H_p2) / 2;
-
-                Transform = CreateScale(Radius, Radius * AspectRatio());
-                Transform *= CreateTranslation(Axis * Center);
-
-                RenderFlare(Transform);
-             */
-
-            Matrix4x4 Ma = ghost.ma;
-            Matrix4x4 Ms = ghost.ms;
-
             // Aperture projected onto the entrance
-            float H_e1 = (aparatureHeight - Ma[0, 1] * angleToLight) / Ma[0, 0];
-            float H_e2 = (-aparatureHeight - Ma[0, 1] * angleToLight) / Ma[0, 0];
+            float H_e1 = (apertureHeight - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
+            float H_e2 = (-apertureHeight - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
 
-            // Flare quad bounds projected through the system
-            float[,] MsMa = new float[2, 2]
-            {
-                {Ms[0, 0] * Ma[0, 0] + Ms[0, 1] * Ma[1, 0], Ms[0, 0] * Ma[0, 1] + Ms[0, 1] * Ma[1, 1]},
-                {Ms[1, 0] * Ma[0, 0] + Ms[1, 1] * Ma[1, 0], Ms[1, 0] * Ma[0, 1] + Ms[1, 1] * Ma[1, 1]},
-            };
-
-            // float H_p1 = (MsMa * new Vector2(H_e1, angleToLight)).x;
-            // float H_p2 = (MsMa * new Vector2(H_e2, angleToLight)).x;
-            Vector2 v1 = new Vector2(H_e1, angleToLight);
-            Vector2 v2 = new Vector2(H_e2, angleToLight);
-
-            float H_p1 = MsMa[0, 0] * H_e1 + MsMa[0, 1] * angleToLight;
-            float H_p2 = MsMa[0, 0] * H_e2 + MsMa[0, 1] * angleToLight;
+            float H_p1 = (ghost.ms * ghost.ma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
+            float H_p2 = (ghost.ms * ghost.ma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
 
             // Project on to image circle
             float sensorSize = 43.3f;
             H_p1 /= sensorSize / 2f;
             H_p2 /= sensorSize / 2f;
 
-            float Center = (H_p1 + H_p2) / 2f;
-            float Radius = Mathf.Abs(H_p1 - H_p2) / 2f;
+            float center = (H_p1 + H_p2) / 2f;
+            float radius = Mathf.Abs(H_p1 - H_p2) / 2f;
 
-            float entrancePupil = aparatureHeight / Mathf.Abs(Ma[0, 0]);
-            float intensity = Mathf.Sqrt(Mathf.Abs(H_e1 - H_e2)) / Mathf.Sqrt(2f * entrancePupil);
-            intensity /= Mathf.Sqrt(2f * 16f);
+            Matrix4x4 flareTansform = Matrix4x4.Scale(new Vector3(radius, radius * _camera.aspect));
+            flareTansform *= Matrix4x4.Translate(new Vector3(axis.x, axis.y, 0f) * center);
 
-            Vector4 offsetAndScale = new Vector4(0f, 0f, 1f, Screen.height / (float)Screen.width);
-            offsetAndScale.z = Radius;
+            /*
+                entrancePupil = H_a / system.M_a[0][0];
+                Intensity = Sqr(H_e1 - H_e2) / Sqr(2 * entrancePupil);
+                Intensity /= Sqr(2 * Radius);
+             */
+            float entrancePupil = apertureHeight / SystemEntranceToAperture[0, 0];
+            float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
+            intensity = intensity / (Mathf.Pow(radius, 2f) * sensorSize);
+            intensity = intensity * (1f - angleToLight);
+            intensity = Mathf.Min(Mathf.Max(.2f, intensity), 1f);
 
-            Vector3 lightForward = mainLight.transform.forward;
-            Vector4 lightDirection = new Vector4(lightForward.x, lightForward.y, lightForward.z, 0f);
+            if (intensity < .05f && radius > .5f)
+            {
+                //continue;
+            }
 
-            Vector2 directionInPlane = _camera.worldToCameraMatrix * lightDirection;
-            directionInPlane.Normalize();
+            Vector4 flareColor = new Vector4(0, 0, 0, 0);
+            float coatingThickness = 3f;
+            flareColor.w = intensity;
+            float angle = .2f;
+            float d = 550f / 4.0f / ghost.n1;
+            flareColor.x = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor.y = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor.z = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor *= 5f + intensity;
 
-            offsetAndScale.x = Center * axis.x;
-            offsetAndScale.y = Center * axis.y;
+            Debug.Log(intensity);
 
             material.SetInt(Uniforms._AperatureEdges, aperatureGons);
-
             material.SetFloat(Uniforms._Smoothing, smoothing * .2f);
             material.SetFloat(Uniforms._Intensity, intensity);
-
-            material.SetVector(Uniforms._FlareOffsetAndScale, offsetAndScale);
-
+            material.SetMatrix(Uniforms._FlareTransform, flareTansform);
             material.SetTexture(Uniforms._AperatureTexture, aperatureTexture);
+            material.SetVector(Uniforms._FlareColor, flareColor);
 
+            Graphics.SetRenderTarget(flareTexture);
             material.SetPass(4);
             Graphics.DrawMeshNow(quad, Matrix4x4.identity, 4);
         }
+
+        Graphics.Blit(flareTexture, source, material, 6);
         
-        // Matrix4x4 myMs = Translations[7] * Refractions[7] * Translations[6] * Refractions[6] * Translations[5] * Refractions[5] * Translations[4];
+        material.SetTexture(Uniforms._FlareTexture, flareTexture);
+        Graphics.Blit(source, destination);
 
-        // Debug.Log(myMs);
-
-        /*
-        float[,] Ms = new float[2, 2]
-        {
-            {0.4954431883059281f , 33.2568454471298f},
-            {-0.002459387653110285f , 1.8533073954767003f},
-        };
-
-        float[,] Ma = new float[2, 2]
-        {
-            {-0.35749219743279453f , 80.06000472093609f},
-            {-0.016399658839073523f , 0.8754226422992095f},
-        };
-
-
-        // Aperture projected onto the entrance
-        float H_e1 = (aparatureHeight - Ma[0, 1] * angleToLight) / Ma[0, 0];
-        float H_e2 = (-aparatureHeight - Ma[0, 1] * angleToLight) / Ma[0, 0];
-
-        // Flare quad bounds projected through the system
-        float[,] MsMa = new float[2, 2]
-        {
-            {Ms[0, 0] * Ma[0, 0] + Ms[0, 1] * Ma[1, 0], Ms[0, 0] * Ma[0, 1] + Ms[0, 1] * Ma[1, 1]},
-            {Ms[1, 0] * Ma[0, 0] + Ms[1, 1] * Ma[1, 0], Ms[1, 0] * Ma[1, 1] + Ms[1, 1] * Ma[1, 1]},
-        };
-
-        // float H_p1 = (MsMa * new Vector2(H_e1, angleToLight)).x;
-        // float H_p2 = (MsMa * new Vector2(H_e2, angleToLight)).x;
-        Vector2 v1 = new Vector2(H_e1, angleToLight);
-        Vector2 v2 = new Vector2(H_e2, angleToLight);
-
-        float H_p1 = MsMa[0, 0] * v1.x + MsMa[1, 0] * v1.y;
-        float H_p2 = MsMa[0, 0] * v2.x + MsMa[1, 0] * v2.y;
-
-        // Project on to image circle
-        H_p1 /= 21.65f;
-        H_p2 /= 21.65f;
-
-        float Center = (H_p1 + H_p2) / 2;
-        float Radius = Mathf.Abs(H_p1 - H_p2) / 2;
-
-        float entrancePupil = aparatureHeight / Mathf.Abs(Ma[0, 0]);
-        float intensity = Mathf.Sqrt(Mathf.Abs(H_e1 - H_e2)) / Mathf.Sqrt(2f * entrancePupil);
-        intensity /= Mathf.Sqrt(2f * 16f);
-
-        Vector4 offsetAndScale = new Vector4(0f, 0f, 1f, Screen.height / (float)Screen.width);
-        offsetAndScale.z = Radius;
-
-        Vector3 lightForward = mainLight.transform.forward;
-        Vector4 lightDirection = new Vector4(lightForward.x, lightForward.y, lightForward.z, 0f);
-
-        Vector2 directionInPlane = _camera.worldToCameraMatrix * lightDirection;
-        directionInPlane.Normalize();
-
-        offsetAndScale.x = Center * -directionInPlane.x;
-        offsetAndScale.y = Center * -directionInPlane.y;
-
-        material.SetInt(Uniforms._AperatureEdges, aperatureGons);
-
-        material.SetFloat(Uniforms._Smoothing, smoothing * .2f);
-        material.SetFloat(Uniforms._Intensity, intensity);
-
-        material.SetVector(Uniforms._FlareOffsetAndScale, offsetAndScale);
-
-        material.SetTexture(Uniforms._AperatureTexture, aperatureTexture);
-
-        material.SetPass(4);
-        Graphics.DrawMeshNow(quad, Matrix4x4.identity, 4);
-        */
+        RenderTexture.ReleaseTemporary(flareTexture);
     }
 
     Texture2D GeneratePolygonAparatureTexture(int sides, int resolution, float smoothing)
