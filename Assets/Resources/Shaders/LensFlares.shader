@@ -14,10 +14,10 @@
         #define M_PI 3.1415926535897932384626433832795
         #define M_PI2 6.28318530718
 
-        sampler2D _AperatureTexture;
+        sampler2D _ApertureTexture;
         sampler2D _FlareTexture;
 
-        int _AperatureEdges;
+        int _ApertureEdges;
         float _Smoothing;
 
         float4 _FlareColor;
@@ -45,22 +45,27 @@
         half4 PolygonShape(float2 coord)
         {
             float distance = 0.;
-            for (int i = 0; i < _AperatureEdges; ++i)
+            for (int i = 0; i < _ApertureEdges; ++i)
             {
-                float angle = M_PI2 * (float)i / (float)_AperatureEdges;
+                float angle = M_PI2 * (float)i / (float)_ApertureEdges;
                 float2 axis = float2(cos(angle), sin(angle));
                 distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
             }
-            return distance;
+            return smin(distance, 1., _Smoothing);
+        }
+
+        half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
+        {
+            float2 coord = i.texcoord * 2. - 1.;
+            float polygon = PolygonShape(coord);
+            polygon = smoothstep(0., 1., pow(polygon + .2, 48.));
+            polygon = saturate(1. - polygon);
+            return polygon;
         }
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
-            float2 coord = i.texcoord * 2. - 1.;
-            float d = PolygonShape(coord);
-            d = smoothstep(0., 1., pow(d + .2, 48.));
-            d = saturate(1. - d);
-            // d *= _Intensity;
+            float d = tex2D(_ApertureTexture, i.texcoord).r;
             return float4(1, 1, 1, 1) * d * _FlareColor;
         }
 
@@ -159,6 +164,14 @@
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment ClearFragment
+            ENDCG
+        }
+
+        Pass // 8
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment DrawApertureSDFFragment
             ENDCG
         }
     }
