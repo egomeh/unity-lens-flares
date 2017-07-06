@@ -1,0 +1,20 @@
+﻿#pragma kernel Test
+
+RWTexture2D<float4> Result;
+
+Texture2D ApertureTexture;
+SamplerState samplerApertureTexture
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    MipFilter = Linear;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+
+[numthreads(8,8,1)]
+void Test (uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = id.xy / 256.;
+    float4 color = ApertureTexture.SampleLevel(samplerApertureTexture, uv, 0);
+    Result[id.xy] = color;
+}
