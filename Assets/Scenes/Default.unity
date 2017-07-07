@@ -204,8 +204,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e6b4e27f5825a5c41905b8ceff50b154, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  starburstShader: {fileID: 7200000, guid: 7b0755ee7b8e8c04aaeb4e7e0feb17c7, type: 3}
   mainLight: {fileID: 747664051}
   distanceToFirstInterface: 10
+  optimization: 1
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -232,10 +234,10 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 4.08
+  aperture: 1
   distanceToNextInterface: 10
-  aperatureEdges: 8
-  smoothing: 0.103
+  aperatureEdges: 9
+  smoothing: 0
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -252,6 +254,7 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
+  antoReflectiveCoatingWavelength: 550
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0

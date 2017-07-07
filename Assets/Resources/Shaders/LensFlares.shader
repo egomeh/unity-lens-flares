@@ -16,6 +16,10 @@
 
         sampler2D _ApertureTexture;
         sampler2D _FlareTexture;
+        sampler2D _Real1;
+        sampler2D _Imaginary1;
+        sampler2D _Real2;
+        sampler2D _Imaginary2;
 
         int _ApertureEdges;
         float _Smoothing;
@@ -101,6 +105,17 @@
         {
             return 0.;
         }
+
+        float4 CenterFFT(VaryingsDefault i) : SV_Target
+        {
+            float r1 = tex2D(_Real1, i.texcoord).r;
+            float i1 = tex2D(_Imaginary1, i.texcoord).r;
+
+            float r2 = tex2D(_Real2, i.texcoord).r;
+            float i2 = tex2D(_Imaginary2, i.texcoord).r;
+
+            return length(pow(float2(r1, i1), 2.) + pow(float2(r2, i2), 2.));
+        }
         ENDCG
 
         Pass // 0
@@ -172,6 +187,14 @@
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment DrawApertureSDFFragment
+            ENDCG
+        }
+
+        Pass // 9
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment CenterFFT
             ENDCG
         }
     }

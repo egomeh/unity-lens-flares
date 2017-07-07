@@ -1,20 +1,127 @@
-﻿#pragma kernel Test
+﻿//--------------------------------------------------------------------------------------
+// Copyright 2014 Intel Corporation
+// All Rights Reserved
+//
+// Permission is granted to use, copy, distribute and prepare derivative works of this
+// software for any purpose and without fee, provided, that the above copyright notice
+// and this statement appear in all copies.  Intel makes no representations about the
+// suitability of this software for any purpose.  THIS SOFTWARE IS PROVIDED "AS IS."
+// INTEL SPECIFICALLY DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, AND ALL LIABILITY,
+// INCLUDING CONSEQUENTIAL AND OTHER INDIRECT DAMAGES, FOR THE USE OF THIS SOFTWARE,
+// INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PROPRIETARY RIGHTS, AND INCLUDING THE
+// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Intel does not
+// assume any responsibility for any errors which may appear in this software nor any
+// responsibility to update it.
+//--------------------------------------------------------------------------------------
+
+#pragma kernel Test
+#pragma kernel FFTRadix2Columns
+#pragma kernel FFTRadix2Rows
+
+int _ApertureResolution;
+int _SeperationCount;
+int _ButterflyCount;
+int _Length;
 
 RWTexture2D<float4> Result;
 
-Texture2D ApertureTexture;
-SamplerState samplerApertureTexture
-{
-    Filter = MIN_MAG_MIP_LINEAR;
-    MipFilter = Linear;
-    AddressU = Wrap;
-    AddressV = Wrap;
-};
+Texture2D<float3> TextureSourceR  : register(t0);
+Texture2D<float3> TextureSourceI  : register(t1);
+RWTexture2D<float3> TextureTargetR  : register(u0);
+RWTexture2D<float3> TextureTargetI  : register(u1);
 
-[numthreads(8,8,1)]
-void Test (uint3 id : SV_DispatchThreadID)
+static const float PI = 3.14159265f;
+
+void GetButterflyValues(uint passIndex, uint x, out uint2 indices, out float2 weights)
 {
-    float2 uv = id.xy / 256.;
-    float4 color = ApertureTexture.SampleLevel(samplerApertureTexture, uv, 0);
-    Result[id.xy] = color;
+    int sectionWidth = 2 << passIndex;
+    int halfSectionWidth = sectionWidth / 2u;
+
+    int sectionStartOffset = x & ~(sectionWidth - 1);
+    int halfSectionOffset = x & (halfSectionWidth - 1);
+    int sectionOffset = x & (sectionWidth - 1);
+
+    sincos(2. * PI * sectionOffset / (float)sectionWidth, weights.y, weights.x);
+    weights.y = -weights.y;
+
+    indices.x = sectionStartOffset + halfSectionOffset;
+    indices.y = sectionStartOffset + halfSectionOffset + halfSectionWidth;
+
+    if (passIndex == 0)
+    {
+        indices = reversebits(indices) >> (32 - _ButterflyCount) & (_Length - 1);
+    }
 }
+
+groupshared float3 pingPongArray[4][512];
+void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float3 resultR, out float3 resultI)
+{
+    uint2 Indices;
+    float2 Weights;
+    GetButterflyValues(passIndex, x, Indices, Weights);
+
+    float3 inputR1 = pingPongArray[t0][Indices.x];
+    float3 inputI1 = pingPongArray[t1][Indices.x];
+
+    float3 inputR2 = pingPongArray[t0][Indices.y];
+    float3 inputI2 = pingPongArray[t1][Indices.y];
+
+    resultR = inputR1 + Weights.x * inputR2 - Weights.y * inputI2;
+    resultI = inputI1 + Weights.y * inputR2 + Weights.x * inputI2;
+}
+
+[numthreads(8, 8, 1)]
+void Test(uint3 id : SV_DispatchThreadID)
+{
+    Result[id.xy] = id.x % 2 == 0;
+}
+
+[numthreads(512, 1, 1)]
+void FFTRadix2Columns(uint3 id : SV_DispatchThreadID)
+{
+    uint2 texturePos = uint2(id.yx);
+
+    // Load entire row or column into scratch array
+    pingPongArray[0][id.x].xyz = TextureSourceR[texturePos];
+    pingPongArray[1][id.x].xyz = TextureSourceI[texturePos];
+
+    uint4 textureIndices = uint4(0, 1, 2, 3);
+    for (int i = 0; i < _ButterflyCount - 1; i++)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        ButterflyPass(i, id.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][id.x].xyz, pingPongArray[textureIndices.w][id.x].xyz);
+        textureIndices.xyzw = textureIndices.zwxy;
+    }
+
+    // Final butterfly will write directly to the target texture
+    GroupMemoryBarrierWithGroupSync();
+
+    // The final pass writes to the output UAV texture
+    ButterflyPass(_ButterflyCount - 1, id.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
+}
+
+[numthreads(512, 1, 1)]
+void FFTRadix2Rows(uint3 id : SV_DispatchThreadID)
+{
+    uint2 texturePos = uint2(id.xy);
+
+    // Load entire row or column into scratch array
+    pingPongArray[0][id.x].xyz = TextureSourceR[texturePos];
+    // don't load values from the imaginary texture when loading the original texture
+    pingPongArray[1][id.x].xyz = 0;
+
+    uint4 textureIndices = uint4(0, 1, 2, 3);
+    for (int i = 0; i < _ButterflyCount - 1; i++)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        ButterflyPass(i, id.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][id.x].xyz, pingPongArray[textureIndices.w][id.x].xyz);
+        textureIndices.xyzw = textureIndices.zwxy;
+    }
+
+    // Final butterfly will write directly to the target texture
+    GroupMemoryBarrierWithGroupSync();
+
+    // The final pass writes to the output UAV texture
+    ButterflyPass(_ButterflyCount - 1, id.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
+}
+
