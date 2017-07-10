@@ -47,6 +47,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     const float kWavelengthGreen = 510f;
     const float kWavelengthBlue = 475f;
 
+    const int kApertureResolution = 512;
+
     // Compute shader to compute the FFT of the aperture
     public ComputeShader starburstShader;
 
@@ -181,21 +183,61 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
     }
 
-    Texture m_apertureTexture;
-    Texture apertureTexture
+    static float SMin(float a, float b, float smoothing)
+    {
+        float diff = a - b;
+        float h = Mathf.Clamp01(.5f + .5f * diff / smoothing);
+
+        return b - h * (diff + smoothing * (1.0f - h));
+    }
+
+    static float SMax(float a, float b, float smoothing)
+    {
+        float diff = a - b;
+        float h = Mathf.Clamp01(.5f + .5f * diff / smoothing);
+
+        return b + h * (diff + smoothing * (1f - h));
+    }
+
+    Texture2D m_apertureTexture;
+    Texture2D apertureTexture
     {
         get
         {
             if (!m_apertureTexture)
             {
-                RenderTexture rt = new RenderTexture(256, 256, 0, RenderTextureFormat.ARGB32);
+                m_apertureTexture = new Texture2D(kApertureResolution, kApertureResolution, TextureFormat.ARGB32, true);
 
-                material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
-                material.SetFloat(Uniforms._Smoothing, smoothing);
+                Color[] pixels = new Color[kApertureResolution * kApertureResolution];
 
-                Graphics.Blit(null, rt, material, 8);
+                for (int y = 0; y < kApertureResolution; ++y)
+                {
+                    for (int x = 0; x < kApertureResolution; ++x)
+                    {
+                        Vector2 coord = new Vector2((float)x / kApertureResolution, (float)y / kApertureResolution);
+                        coord *= 2f;
+                        coord -= new Vector2(1f, 1f);
+                        coord *= 1.25f;
 
-                m_apertureTexture = rt;
+                        float distance = 0f;
+                        for (int i = 0; i < aperatureEdges; ++i)
+                        {
+                            float angle = Mathf.PI * 2f * i / aperatureEdges;
+                            Vector2 axis = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                            distance = SMax(distance, Vector2.Dot(axis, coord), -Mathf.Log(1f - (smoothing + .0001f)));
+                        }
+
+                        float aperture = SMin(distance, 1f, smoothing);
+
+                        float polygon = Mathf.SmoothStep(0f, 1f, Mathf.Pow(aperture, 48f));
+                        polygon = Mathf.Clamp01(polygon);
+
+                        pixels[y * kApertureResolution + x] = new Color(polygon, polygon, polygon, polygon);
+                    }
+                }
+
+                m_apertureTexture.SetPixels(pixels);
+                m_apertureTexture.Apply();
             }
 
             return m_apertureTexture;
@@ -211,99 +253,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         {
             if (!m_ApertureFT)
             {
-                int width = apertureTexture.width;
-                int height = apertureTexture.height;
-
-                // The size of the FFT of the aperture
-                // This should 
-                int fftSize = Mathf.Min(Math.Max(Math.Max(width, height), 1), 512);
-
-                // round up to closest 2^n
-                fftSize--;
-                fftSize |= fftSize >> 1;
-                fftSize |= fftSize >> 2;
-                fftSize |= fftSize >> 4;
-                fftSize |= fftSize >> 8;
-                fftSize |= fftSize >> 16;
-                fftSize++;
-
-                // Get power of two textue with the aperture
-                RenderTexture rt = RenderTexture.GetTemporary(fftSize, fftSize, 0, RenderTextureFormat.ARGB32);
-                RenderTexture black = RenderTexture.GetTemporary(fftSize, fftSize, 0, RenderTextureFormat.ARGB32);
-
-                RenderTexture tempBuffer = new RenderTexture(fftSize, fftSize, 0, rt.format);
-                RenderTexture tempBufferI = new RenderTexture(fftSize, fftSize, 0, rt.format);
-
-                RenderTexture tempBuffer2 = new RenderTexture(fftSize, fftSize, 0, rt.format);
-                RenderTexture tempBuffer2I = new RenderTexture(fftSize, fftSize, 0, rt.format);
-
-                // Get the aperture texture in a n^2 square texture
-                Graphics.Blit(apertureTexture, rt);
-
-                // Get a black texture, i.e. inexisting imaginary part of image
-                Graphics.Blit(Texture2D.blackTexture, black);
-
-                tempBuffer.enableRandomWrite = true;
-                tempBuffer.Create();
-
-                tempBufferI.enableRandomWrite = true;
-                tempBufferI.Create();
-
-                tempBuffer2.enableRandomWrite = true;
-                tempBuffer2.Create();
-
-                tempBuffer2I.enableRandomWrite = true;
-                tempBuffer2I.Create();
-                
-                int fftColumns = starburstShader.FindKernel("FFTRadix2Columns");
-                int fftRows = starburstShader.FindKernel("FFTRadix2Rows");
-
-                if (starburstShader)
-                {
-                    starburstShader.SetInt("_Length", fftSize);
-                    starburstShader.SetInt("_ButterflyCount", (int) (Mathf.Log(fftSize, 2f) / Mathf.Log(2f, 2f)));
-
-                    // Do row fft pass
-                    starburstShader.SetTexture(fftRows, "TextureSourceR", rt);
-                    starburstShader.SetTexture(fftRows, "TextureSourceI", black);
-
-                    starburstShader.SetTexture(fftRows, "TextureTargetR", tempBuffer);
-                    starburstShader.SetTexture(fftRows, "TextureTargetI", tempBufferI);
-
-                    starburstShader.Dispatch(fftRows, 1, fftSize, 1);
-
-                    // Do column fft pass
-                    starburstShader.SetTexture(fftColumns, "TextureSourceR", rt);
-                    starburstShader.SetTexture(fftColumns, "TextureSourceI", black);
-
-                    starburstShader.SetTexture(fftColumns, "TextureTargetR", tempBuffer2);
-                    starburstShader.SetTexture(fftColumns, "TextureTargetI", tempBuffer2I);
-
-                    starburstShader.Dispatch(fftColumns, 1, fftSize, 1);
-
-                    material.SetTexture("_Real1", tempBuffer);
-                    material.SetTexture("_Imaginary1", tempBufferI);
-
-                    material.SetTexture("_Real2", tempBuffer2);
-                    material.SetTexture("_Imaginary2", tempBuffer2I);
-
-                    Graphics.Blit(Texture2D.blackTexture, rt);
-                    Graphics.Blit(tempBuffer, rt, material, 9);
-                }
-
-                tempBuffer.Release();
-                GraphicsUtils.Destroy(tempBuffer);
-
-                tempBufferI.Release();
-                GraphicsUtils.Destroy(tempBufferI);
-
-                tempBuffer2.Release();
-                GraphicsUtils.Destroy(tempBuffer2);
-
-                tempBuffer2I.Release();
-                GraphicsUtils.Destroy(tempBuffer2I);
-
-                m_ApertureFT = rt;
+                Debug.Log("Recomputing FFT");
+                m_ApertureFT = DFT.ComputeFFTSeperate(apertureTexture);
             }
 
             return m_ApertureFT;
@@ -327,6 +278,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     {
         GraphicsUtils.Destroy(m_apertureTexture);
         GraphicsUtils.Destroy(m_ApertureFT);
+
         m_apertureTexture = null;
         m_ApertureFT = null;
     }
@@ -667,7 +619,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
 
         Graphics.Blit(flareTexture, source, material, 6);
-        
+
         material.SetTexture(Uniforms._FlareTexture, flareTexture);
         Graphics.Blit(source, destination);
 

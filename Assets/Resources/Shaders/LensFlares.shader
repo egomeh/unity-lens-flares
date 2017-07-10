@@ -108,13 +108,15 @@
 
         float4 CenterFFT(VaryingsDefault i) : SV_Target
         {
-            float r1 = tex2D(_Real1, i.texcoord).r;
-            float i1 = tex2D(_Imaginary1, i.texcoord).r;
+            float2 coord = frac(i.texcoord + float2(.5, -.5));
 
-            float r2 = tex2D(_Real2, i.texcoord).r;
-            float i2 = tex2D(_Imaginary2, i.texcoord).r;
+            float r1 = tex2D(_Real1, coord).r;
+            float i1 = tex2D(_Imaginary1, coord).r;
 
-            return length(pow(float2(r1, i1), 2.) + pow(float2(r2, i2), 2.));
+            float r2 = tex2D(_Real2, coord).r;
+            float i2 = tex2D(_Imaginary2, coord).r;
+
+            return length(i1 * i1 + r2 * r2);
         }
         ENDCG
 

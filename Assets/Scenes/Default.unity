@@ -236,7 +236,7 @@ MonoBehaviour:
     refractiveIndex: 0
   aperture: 1
   distanceToNextInterface: 10
-  aperatureEdges: 9
+  aperatureEdges: 4
   smoothing: 0
   interfacesAfterAperature:
   - distanceToNext: 3.85

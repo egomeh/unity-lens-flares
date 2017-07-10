@@ -15,13 +15,13 @@
 //--------------------------------------------------------------------------------------
 
 #pragma kernel Test
-#pragma kernel FFTRadix2Columns
-#pragma kernel FFTRadix2Rows
+#pragma kernel ButterflySLM
 
 int _ApertureResolution;
 int _SeperationCount;
 int _ButterflyCount;
 int _Length;
+int _RowPass;
 
 RWTexture2D<float4> Result;
 
@@ -77,19 +77,36 @@ void Test(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(512, 1, 1)]
-void FFTRadix2Columns(uint3 id : SV_DispatchThreadID)
+void ButterflySLM(uint3 position : SV_DispatchThreadID)
 {
-    uint2 texturePos = uint2(id.yx);
+    uint2 texturePos = uint2(position.xy);
+
+    if (_RowPass == 1)
+    {
+        texturePos = uint2(position.xy);
+    }
+    else
+    {
+        texturePos = uint2(position.yx);
+    }
 
     // Load entire row or column into scratch array
-    pingPongArray[0][id.x].xyz = TextureSourceR[texturePos];
-    pingPongArray[1][id.x].xyz = TextureSourceI[texturePos];
+    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos];
+
+    if (_RowPass == 1)
+    {
+        pingPongArray[1][position.x].xyz = 0;
+    }
+    else
+    {
+        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos];
+    }
 
     uint4 textureIndices = uint4(0, 1, 2, 3);
     for (int i = 0; i < _ButterflyCount - 1; i++)
     {
         GroupMemoryBarrierWithGroupSync();
-        ButterflyPass(i, id.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][id.x].xyz, pingPongArray[textureIndices.w][id.x].xyz);
+        ButterflyPass(i, position.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][position.x].xyz, pingPongArray[textureIndices.w][position.x].xyz);
         textureIndices.xyzw = textureIndices.zwxy;
     }
 
@@ -97,31 +114,5 @@ void FFTRadix2Columns(uint3 id : SV_DispatchThreadID)
     GroupMemoryBarrierWithGroupSync();
 
     // The final pass writes to the output UAV texture
-    ButterflyPass(_ButterflyCount - 1, id.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
+    ButterflyPass(_ButterflyCount - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
 }
-
-[numthreads(512, 1, 1)]
-void FFTRadix2Rows(uint3 id : SV_DispatchThreadID)
-{
-    uint2 texturePos = uint2(id.xy);
-
-    // Load entire row or column into scratch array
-    pingPongArray[0][id.x].xyz = TextureSourceR[texturePos];
-    // don't load values from the imaginary texture when loading the original texture
-    pingPongArray[1][id.x].xyz = 0;
-
-    uint4 textureIndices = uint4(0, 1, 2, 3);
-    for (int i = 0; i < _ButterflyCount - 1; i++)
-    {
-        GroupMemoryBarrierWithGroupSync();
-        ButterflyPass(i, id.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][id.x].xyz, pingPongArray[textureIndices.w][id.x].xyz);
-        textureIndices.xyzw = textureIndices.zwxy;
-    }
-
-    // Final butterfly will write directly to the target texture
-    GroupMemoryBarrierWithGroupSync();
-
-    // The final pass writes to the output UAV texture
-    ButterflyPass(_ButterflyCount - 1, id.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
-}
-
