@@ -140,10 +140,10 @@ public class DFT
             int x = i % image.width;
             int y = i / image.width;
 
-            int shiftX = (x + image.width / 2) % image.width;
-            int shiftY = (y + image.height / 2) % image.height;
+            x = (x + image.width / 2) % image.width;
+            y = (y + image.height / 2) % image.height;
 
-            int shiftedIndex = image.width * shiftY + shiftX;
+            int shiftedIndex = image.width * y + x;
             float power = Mathf.Sqrt(spectrumPixelsReal[shiftedIndex] * spectrumPixelsImaginary[shiftedIndex]);
             spectrumPixels[i] = new Color(power, power, power, 1f);
         }
