@@ -1,4 +1,5 @@
-﻿using UnityEditor;
+﻿using System;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Assertions.Comparers;
 
@@ -153,6 +154,40 @@ public class DFT
 
         spectrum.SetPixels(spectrumPixels);
         spectrum.Apply();
+
+        return spectrum;
+    }
+
+
+    public static Texture2D computeFFTPowerOf2(Texture2D image)
+    {
+        // Check that image is a square
+        if (image.width != image.height)
+        {
+            throw new ArgumentException("Image must have equal width and height");
+        }
+
+        // Chack that the dimension sizes are a power of 2
+        if (! (image.width != 0 && ((image.width & (image.width - 1)) == 0)))
+        {
+            throw new ArgumentException("Image size must be a power of 2");
+        }
+
+        Texture2D spectrum = new Texture2D(image.width, image.height);
+
+        Color[] pixels = image.GetPixels();
+        float[] intensities = new float[pixels.Length];
+
+        float[] tempPixelsReal = new float[pixels.Length];
+        float[] tempPixelsImaginary = new float[pixels.Length];
+
+        float[] spectrumPixelsReal = new float[pixels.Length];
+        float[] spectrumPixelsImaginary = new float[pixels.Length];
+
+        for (int i = 0; i < pixels.Length; ++i)
+        {
+            intensities[i] = pixels[i].grayscale;
+        }
 
         return spectrum;
     }

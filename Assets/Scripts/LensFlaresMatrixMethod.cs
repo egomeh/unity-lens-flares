@@ -254,7 +254,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             if (!m_ApertureFT)
             {
                 Debug.Log("Recomputing FFT");
-                m_ApertureFT = DFT.ComputeFFTSeperate(apertureTexture);
+                m_ApertureFT = DFT.computeFFTPowerOf2(apertureTexture);
             }
 
             return m_ApertureFT;
