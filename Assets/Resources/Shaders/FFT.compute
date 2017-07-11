@@ -14,14 +14,12 @@
 // responsibility to update it.
 //--------------------------------------------------------------------------------------
 
-#pragma kernel Test
 #pragma kernel ButterflySLM
 
-int _ApertureResolution;
-int _SeperationCount;
 int _ButterflyCount;
-int _Length;
 int _RowPass;
+
+#define Length 512
 
 RWTexture2D<float4> Result;
 
@@ -49,11 +47,11 @@ void GetButterflyValues(uint passIndex, uint x, out uint2 indices, out float2 we
 
     if (passIndex == 0)
     {
-        indices = reversebits(indices) >> (32 - _ButterflyCount) & (_Length - 1);
+        indices = reversebits(indices) >> (32 - _ButterflyCount) & (Length - 1);
     }
 }
 
-groupshared float3 pingPongArray[4][512];
+groupshared float3 pingPongArray[4][Length];
 void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float3 resultR, out float3 resultI)
 {
     uint2 Indices;
@@ -70,13 +68,7 @@ void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float3 resultR, 
     resultI = inputI1 + Weights.y * inputR2 + Weights.x * inputI2;
 }
 
-[numthreads(8, 8, 1)]
-void Test(uint3 id : SV_DispatchThreadID)
-{
-    Result[id.xy] = id.x % 2 == 0;
-}
-
-[numthreads(512, 1, 1)]
+[numthreads(Length, 1, 1)]
 void ButterflySLM(uint3 position : SV_DispatchThreadID)
 {
     uint2 texturePos = uint2(position.xy);
@@ -91,7 +83,7 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     }
 
     // Load entire row or column into scratch array
-    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos];
+    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos]  * .2;
 
     if (_RowPass == 1)
     {
@@ -99,7 +91,7 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     }
     else
     {
-        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos];
+        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos] * .2;
     }
 
     uint4 textureIndices = uint4(0, 1, 2, 3);

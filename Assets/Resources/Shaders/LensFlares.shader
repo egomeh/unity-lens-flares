@@ -9,17 +9,21 @@
         Cull Off ZWrite Off ZTest Always
         Blend One One
         CGINCLUDE
+        #pragma multi_compile __ BLUR_PASS_VERTICAL
+
         #include "LensFlares.cginc"
 
         #define M_PI 3.1415926535897932384626433832795
         #define M_PI2 6.28318530718
 
         sampler2D _ApertureTexture;
+        sampler2D _ApertureFTTexture;
         sampler2D _FlareTexture;
-        sampler2D _Real1;
-        sampler2D _Imaginary1;
-        sampler2D _Real2;
-        sampler2D _Imaginary2;
+
+        sampler2D _Real;
+        sampler2D _Imaginary;
+
+        sampler2D _ApertureFFT;
 
         int _ApertureEdges;
         float _Smoothing;
@@ -106,18 +110,45 @@
             return 0.;
         }
 
-        float4 CenterFFT(VaryingsDefault i) : SV_Target
+        float4 CenterFFTPowerSpectrum(VaryingsDefault i) : SV_Target
         {
-            float2 coord = frac(i.texcoord + float2(.5, -.5));
+            float2 coord = frac(i.texcoord + float2(.5, .5));
 
-            float r1 = tex2D(_Real1, coord).r;
-            float i1 = tex2D(_Imaginary1, coord).r;
+            float r1 = tex2D(_Real, coord).r;
+            float i1 = tex2D(_Imaginary, coord).r;
 
-            float r2 = tex2D(_Real2, coord).r;
-            float i2 = tex2D(_Imaginary2, coord).r;
-
-            return length(i1 * i1 + r2 * r2);
+            return (r1 * r1 + i1 * i1);
         }
+
+        float4 ApertureSideBySide(VaryingsDefault i) : SV_Target
+        {
+            float2 scale = float2(2., 1.);
+            float fft = tex2D(_ApertureFTTexture, i.texcoord * scale).r;
+            float aperture = tex2D(_ApertureTexture, i.texcoord * scale - float2(1., 0.)).r;
+
+            return lerp(fft, aperture, step(.5, i.texcoord.x));
+        }
+
+        float4 GaussianBlurFragment(VaryingsDefault i) : SV_Target
+        {
+        #if defined(BLUR_PASS_VERTICAL)
+            float2 offset = float2(0., _MainTex_TexelSize.y);
+        #else
+            float2 offset = float2(_MainTex_TexelSize.x, 0.);
+        #endif
+
+            float4 blurred = 0.;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -3.) * .04491018;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -2.) * .20958084;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -1.) * .25149701;
+            blurred += tex2D(_MainTex, i.texcoord) * .20958084;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 1.) * .25149701;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 2.) * .20958084;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 3.) * .04491018;
+
+            return blurred;
+        }
+
         ENDCG
 
         Pass // 0
@@ -196,7 +227,25 @@
         {
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment CenterFFT
+            #pragma fragment CenterFFTPowerSpectrum
+            ENDCG
+        }
+
+        Pass // 10
+        {
+            Blend Off
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment ApertureSideBySide
+            ENDCG
+        }
+
+        Pass // 11
+        {
+            Blend Off
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment GaussianBlurFragment
             ENDCG
         }
     }

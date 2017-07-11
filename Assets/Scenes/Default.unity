@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028334, g: 0.2257134, b: 0.30692226, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028417, g: 0.22571458, b: 0.30692312, a: 1}
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
@@ -234,9 +234,9 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 1
+  aperture: 1.7
   distanceToNextInterface: 10
-  aperatureEdges: 4
+  aperatureEdges: 7
   smoothing: 0
   interfacesAfterAperature:
   - distanceToNext: 3.85
@@ -254,7 +254,7 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  antoReflectiveCoatingWavelength: 550
+  antoReflectiveCoatingWavelength: 653
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
