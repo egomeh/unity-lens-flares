@@ -34,6 +34,8 @@
         float4 _LightPositionIndicator;
         float4 _LightPositionColor;
 
+        float _ApertureScale;
+
         // polynomial smooth min
         // from: http://www.iquilezles.org/www/articles/smin/smin.htm
         float smin(float a, float b, float k)
@@ -59,12 +61,14 @@
                 float2 axis = float2(cos(angle), sin(angle));
                 distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
             }
+
             return smin(distance, 1., _Smoothing);
         }
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
+            coord *= _ApertureScale;
             float polygon = PolygonShape(coord);
             polygon = smoothstep(0., 1., pow(polygon + .2, 48.));
             polygon = saturate(1. - polygon);
@@ -129,7 +133,7 @@
             return lerp(fft, aperture, step(.5, i.texcoord.x));
         }
 
-        float4 GaussianBlurFragment(VaryingsDefault i) : SV_Target
+        float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
         {
         #if defined(BLUR_PASS_VERTICAL)
             float2 offset = float2(0., _MainTex_TexelSize.y);
@@ -138,13 +142,20 @@
         #endif
 
             float4 blurred = 0.;
-            blurred += tex2D(_MainTex, i.texcoord + offset * -3.) * .04491018;
-            blurred += tex2D(_MainTex, i.texcoord + offset * -2.) * .20958084;
-            blurred += tex2D(_MainTex, i.texcoord + offset * -1.) * .25149701;
-            blurred += tex2D(_MainTex, i.texcoord) * .20958084;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 1.) * .25149701;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 2.) * .20958084;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 3.) * .04491018;
+
+            blurred += tex2D(_MainTex, i.texcoord + offset * -4.) * 0.091638;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 4.) * 0.091638;
+
+            blurred += tex2D(_MainTex, i.texcoord + offset * -3.) * 0.105358;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 3.) * 0.105358;
+
+            blurred += tex2D(_MainTex, i.texcoord + offset * -2.) * 0.116402;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 2.) * 0.116402;
+
+            blurred += tex2D(_MainTex, i.texcoord + offset * -1.) * 0.123572;
+            blurred += tex2D(_MainTex, i.texcoord + offset * 1.) * 0.123572;
+
+            blurred += tex2D(_MainTex, i.texcoord) * 0.126063;
 
             return blurred;
         }
@@ -245,7 +256,7 @@
             Blend Off
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment GaussianBlurFragment
+            #pragma fragment GaussianBlurFragment5tap
             ENDCG
         }
     }

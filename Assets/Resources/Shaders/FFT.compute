@@ -83,7 +83,7 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     }
 
     // Load entire row or column into scratch array
-    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos]  * .2;
+    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos]  * .15;
 
     if (_RowPass == 1)
     {
@@ -91,7 +91,7 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     }
     else
     {
-        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos] * .2;
+        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos] * .15;
     }
 
     uint4 textureIndices = uint4(0, 1, 2, 3);

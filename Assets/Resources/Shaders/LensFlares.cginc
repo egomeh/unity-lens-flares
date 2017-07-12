@@ -42,9 +42,9 @@ VaryingsDefault VertDefaultBlit(AttributesDefault v)
     o.vertex = float4(v.vertex, 1.);
     o.vertex = mul(_FlareTransform, o.vertex);
 
-    //o.vertex.x *= _FlareOffsetAndScale.w;
-    ///o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
-    //o.vertex.xy += _FlareOffsetAndScale.xy;
+    // o.vertex.x *= _FlareOffsetAndScale.w;
+    // o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
+    // o.vertex.xy += _FlareOffsetAndScale.xy;
 
     o.texcoord = v.uv;
 
