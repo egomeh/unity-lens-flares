@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028417, g: 0.22571458, b: 0.30692312, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028334, g: 0.2257134, b: 0.30692226, a: 1}
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
@@ -133,7 +133,7 @@ Light:
   m_Enabled: 1
   serializedVersion: 8
   m_Type: 1
-  m_Color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
+  m_Color: {r: 0.83823526, g: 0.9464503, b: 1, a: 1}
   m_Intensity: 1
   m_Range: 10
   m_SpotAngle: 30
@@ -207,7 +207,7 @@ MonoBehaviour:
   starburstShader: {fileID: 7200000, guid: 7b0755ee7b8e8c04aaeb4e7e0feb17c7, type: 3}
   mainLight: {fileID: 747664051}
   distanceToFirstInterface: 10
-  optimization: 1
+  flareBufferDivision: 1
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -234,10 +234,11 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 1.7
+  aperture: 3.82
   distanceToNextInterface: 10
-  aperatureEdges: 7
-  smoothing: 0
+  aperatureEdges: 6
+  smoothing: 0.112
+  starburstBaseSize: 0.204
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -254,7 +255,8 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  antoReflectiveCoatingWavelength: 653
+  antiReflectiveCoatingWavelength: 745
+  apertureFFTDebug: 0
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
