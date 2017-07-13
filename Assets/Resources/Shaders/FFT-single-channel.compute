@@ -19,14 +19,14 @@
 int _ButterflyCount;
 int _RowPass;
 
-#define Length 512
+#define Length 1024
 
 RWTexture2D<float4> Result;
 
 Texture2D<float3> TextureSourceR  : register(t0);
 Texture2D<float3> TextureSourceI  : register(t1);
-RWTexture2D<float3> TextureTargetR  : register(u0);
-RWTexture2D<float3> TextureTargetI  : register(u1);
+RWTexture2D<float> TextureTargetR  : register(u0);
+RWTexture2D<float> TextureTargetI  : register(u1);
 
 static const float PI = 3.14159265f;
 
@@ -51,18 +51,18 @@ void GetButterflyValues(uint passIndex, uint x, out uint2 indices, out float2 we
     }
 }
 
-groupshared float3 pingPongArray[4][Length];
-void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float3 resultR, out float3 resultI)
+groupshared float pingPongArray[4][Length];
+void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float resultR, out float resultI)
 {
     uint2 Indices;
     float2 Weights;
     GetButterflyValues(passIndex, x, Indices, Weights);
 
-    float3 inputR1 = pingPongArray[t0][Indices.x];
-    float3 inputI1 = pingPongArray[t1][Indices.x];
+    float inputR1 = pingPongArray[t0][Indices.x];
+    float inputI1 = pingPongArray[t1][Indices.x];
 
-    float3 inputR2 = pingPongArray[t0][Indices.y];
-    float3 inputI2 = pingPongArray[t1][Indices.y];
+    float inputR2 = pingPongArray[t0][Indices.y];
+    float inputI2 = pingPongArray[t1][Indices.y];
 
     resultR = inputR1 + Weights.x * inputR2 - Weights.y * inputI2;
     resultI = inputI1 + Weights.y * inputR2 + Weights.x * inputI2;
@@ -83,22 +83,22 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     }
 
     // Load entire row or column into scratch array
-    pingPongArray[0][position.x].xyz = TextureSourceR[texturePos]  * .2;
+    pingPongArray[0][position.x].x = TextureSourceR[texturePos].x * .2;
 
     if (_RowPass == 1)
     {
-        pingPongArray[1][position.x].xyz = 0;
+        pingPongArray[1][position.x].x = 0;
     }
     else
     {
-        pingPongArray[1][position.x].xyz = TextureSourceI[texturePos] * .2;
+        pingPongArray[1][position.x].x = TextureSourceI[texturePos].x * .2;
     }
 
     uint4 textureIndices = uint4(0, 1, 2, 3);
     for (int i = 0; i < _ButterflyCount - 1; i++)
     {
         GroupMemoryBarrierWithGroupSync();
-        ButterflyPass(i, position.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][position.x].xyz, pingPongArray[textureIndices.w][position.x].xyz);
+        ButterflyPass(i, position.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][position.x].x, pingPongArray[textureIndices.w][position.x].x);
         textureIndices.xyzw = textureIndices.zwxy;
     }
 
@@ -106,5 +106,5 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     GroupMemoryBarrierWithGroupSync();
 
     // The final pass writes to the output UAV texture
-    ButterflyPass(_ButterflyCount - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos], TextureTargetI[texturePos]);
+    ButterflyPass(_ButterflyCount - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos].x, TextureTargetI[texturePos].x);
 }

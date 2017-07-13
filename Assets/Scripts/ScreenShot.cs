@@ -12,7 +12,7 @@ public class ScreenShot : MonoBehaviour
         filename = filename.Replace("/", "-");
         filename = filename.Replace(":", "-");
         Debug.Log("Saving screenshota as " + filename);
-        Application.CaptureScreenshot(filename);
+        ScreenCapture.CaptureScreenshot(filename);
     }
 
     [MenuItem("MyTab/Test FFT")]

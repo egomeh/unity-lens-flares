@@ -13,9 +13,6 @@
 
         #include "LensFlares.cginc"
 
-        #define M_PI 3.1415926535897932384626433832795
-        #define M_PI2 6.28318530718
-
         sampler2D _ApertureTexture;
         sampler2D _ApertureFTTexture;
         sampler2D _FlareTexture;
@@ -59,26 +56,32 @@
             {
                 float angle = M_PI2 * (float)i / (float)_ApertureEdges;
                 float2 axis = float2(cos(angle), sin(angle));
-                distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
+                // distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
+                distance = max(distance, dot(axis, coord));
             }
 
-            return smin(distance, 1., _Smoothing);
+            float apothem = cos(M_PI / _ApertureEdges);
+            float radius = apothem / (2.  * sin(M_PI / _ApertureEdges));
+            float circle = saturate(length(coord));
+
+            return lerp(distance, circle, _Smoothing);
         }
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
-            coord *= _ApertureScale;
             float polygon = PolygonShape(coord);
+
             polygon = smoothstep(0., 1., pow(polygon + .2, 48.));
             polygon = saturate(1. - polygon);
+
             return polygon;
         }
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
             float d = tex2D(_ApertureTexture, i.texcoord).r;
-            return float4(1, 1, 1, 1) * d * _FlareColor;
+            return d * _FlareColor;
         }
 
         float4 DebugDrawLineFragment(VaryingsDefault i) : SV_Target
@@ -121,7 +124,7 @@
             float r1 = tex2D(_Real, coord).r;
             float i1 = tex2D(_Imaginary, coord).r;
 
-            return (r1 * r1 + i1 * i1);
+            return r1 * r1 + i1 * i1;
         }
 
         float4 ApertureSideBySide(VaryingsDefault i) : SV_Target
@@ -212,6 +215,7 @@
 
         Pass // 6
         {
+            Blend Off
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment ComposeFragment

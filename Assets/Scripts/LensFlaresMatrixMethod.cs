@@ -46,16 +46,80 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _ApertureScale = Shader.PropertyToID("_ApertureScale");
     }
 
+    class Ghost
+    {
+        Matrix4x4 m_EntranceToAperture;
+        Matrix4x4 m_ApertureToSensor;
+
+        float m_N1, m_N2;
+
+        public Ghost(Matrix4x4 entranceToAperture, Matrix4x4 apertureToSensor, float n1, float n2)
+        {
+            m_EntranceToAperture = entranceToAperture;
+            m_ApertureToSensor = apertureToSensor;
+            m_N1 = n1;
+            m_N2 = n2;
+        }
+
+        public Matrix4x4 ma
+        {
+            get { return m_EntranceToAperture; }
+        }
+
+        public Matrix4x4 ms
+        {
+            get { return m_ApertureToSensor; }
+        }
+
+        public float n1
+        {
+            get { return m_N1; }
+        }
+
+        public float n2
+        {
+            get { return m_N2; }
+        }
+    }
+
+
+    class LensSystem
+    {
+        Matrix4x4 m_EntranceToAperture;
+        Matrix4x4 m_ApertureToSensor;
+
+        public LensSystem(Matrix4x4 entranceToAperture, Matrix4x4 apertureToSensor)
+        {
+            m_EntranceToAperture = entranceToAperture;
+            m_ApertureToSensor = apertureToSensor;
+        }
+
+        public Matrix4x4 entranceToAperture
+        {
+            get
+            {
+                return m_EntranceToAperture;
+            }
+        }
+
+        public Matrix4x4 apertureToSensor
+        {
+            get
+            {
+                return m_ApertureToSensor;
+            }
+        }
+    }
+
     const float kRefractiveIndexAir = 1.000293f;
 
     const float kWavelengthRed = 700f;
     const float kWavelengthGreen = 510f;
     const float kWavelengthBlue = 450f;
 
-    // Resolution of the aperture texture
-    // The highest value this can have is 512 due to groupshared memory limitations
-    // in compute shaders, which are used to compute the Fourier transform for the starburst texture
-    const int kApertureResolution = 512;
+    // Resolution of the aperture and aperture transform is 1024x1024
+    // TODO: Maybe a better resolution would be better?
+    const int kApertureResolution = 1024;
 
     // Compute shader to compute the FFT of the aperture
     public ComputeShader starburstShader;
@@ -195,38 +259,14 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
     }
 
-    Texture m_apertureTexture;
-    Texture apertureTexture
+    RenderTexture m_apertureTexture;
+    RenderTexture apertureTexture
     {
         get
         {
             if (!m_apertureTexture)
             {
-                RenderTexture rt = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
-                RenderTexture rt2 = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
-
-                rt.filterMode = FilterMode.Bilinear;
-                rt2.filterMode = FilterMode.Bilinear;
-
-                rt2.Create();
-                rt.Create();
-
-                // Draw the aperture shape as a signed distance field
-                material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
-                material.SetFloat(Uniforms._Smoothing, smoothing);
-                material.SetFloat(Uniforms._ApertureScale, 1f);
-
-                Graphics.Blit(null, rt, material, 8);
-
-                material.EnableKeyword("BLUR_PASS_VERTICAL");
-                Graphics.Blit(rt, rt2, material, 11);
-
-                material.DisableKeyword("BLUR_PASS_VERTICAL");
-                Graphics.Blit(rt2, rt, material, 11);
-
-                m_apertureTexture = rt;
-
-                rt2.Release();
+                Prepare();
             }
 
             return m_apertureTexture;
@@ -234,143 +274,72 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     }
 
     // A Fourier transform of the aperture shape
-    // Used to make the `starburst` flare placed on the light itself
-    Texture m_ApertureFT;
-    Texture apertureFT
+    // Used to make the `star-burst` flare placed on the light itself
+    RenderTexture m_ApertureFourierTransform;
+    RenderTexture apertureFourierTransform
     {
         get
         {
-            if (!m_ApertureFT)
+            if (!m_ApertureFourierTransform)
             {
-                Debug.Log("Recomputing FFT");
-
-                // Create the RenderTexture that the starburst will be placed on
-                RenderTexture rt = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
-                rt.Create();
-
-                // Create Temporary rendertextures
-                // The first 4 are used to compute the FFT of the aperture
-                // index 0 and 1 are used for the target real and imaginary values for the row pass of the FFT
-                // index 2 amd 3 are used for the target real and imaginary of values for the column pass of the FFT
-                // index 4 is forst used for a tempporary scaled version of the aperture
-                // later index 4 is used as a `pingpong` buffer to do a gaussian blur on the FFT texture
-                const int fftTextureCount = 5;
-                RenderTexture[] fftTextures = new RenderTexture[fftTextureCount];
-
-                for (int i = 0; i < fftTextureCount; ++i)
-                {
-                    fftTextures[i] = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
-                    fftTextures[i].enableRandomWrite = true;
-                    fftTextures[i].Create();
-                }
-
-                material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
-                material.SetFloat(Uniforms._Smoothing, smoothing);
-                material.SetFloat(Uniforms._ApertureScale, 1f);
-
-                Graphics.Blit(null, fftTextures[4], material, 8);
-
-                int kernel = starburstShader.FindKernel("ButterflySLM");
-
-                int butterflyCount = (int) (Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
-
-                starburstShader.SetInt("_ButterflyCount", butterflyCount);
-
-                starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
-
-                starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[0]);
-                starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[1]);
-                starburstShader.SetInt("_RowPass", 1);
-                starburstShader.Dispatch(kernel, 1, 512, 1);
-
-                starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[0]);
-                starburstShader.SetTexture(kernel, "TextureSourceI", fftTextures[1]);
-                starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[2]);
-                starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[3]);
-                starburstShader.SetInt("_RowPass", 0);
-                starburstShader.Dispatch(kernel, 1, 512, 1);
-
-                material.SetTexture("_Real", fftTextures[2]);
-                material.SetTexture("_Imaginary", fftTextures[3]);
-                Graphics.Blit(null, rt, material, 9);
-
-                for (int i = 0; i < 1; ++i)
-                {
-                    material.EnableKeyword("BLUR_PASS_VERTICAL");
-                    Graphics.Blit(rt, fftTextures[4], material, 11);
-
-                    material.DisableKeyword("BLUR_PASS_VERTICAL");
-                    Graphics.Blit(fftTextures[4], rt, material, 11);
-                }
-
-                m_ApertureFT = rt;
-
-                for (int i = 0; i < fftTextureCount; ++i)
-                {
-                    fftTextures[i].Release();
-                }
+                Prepare();
             }
 
-            return m_ApertureFT;
+            return m_ApertureFourierTransform;
         }
     }
 
-    void OnDisable()
+    LensSystem m_LensSystem;
+    LensSystem lensSystem
+    {
+        get
+        {
+            if (m_LensSystem == null)
+            {
+                Prepare();
+            }
+
+            return m_LensSystem;
+        }
+    }
+
+    List<Ghost> m_FlareGhosts = null;
+    List<Ghost> flareGhosts
+    {
+        get
+        {
+            if (m_FlareGhosts == null)
+            {
+                Prepare();
+            }
+
+            return m_FlareGhosts;
+        }
+    }
+
+    void Clean()
     {
         GraphicsUtils.Destroy(m_Material);
         GraphicsUtils.Destroy(m_Quad);
         GraphicsUtils.Destroy(m_apertureTexture);
-        GraphicsUtils.Destroy(m_ApertureFT);
+        GraphicsUtils.Destroy(m_ApertureFourierTransform);
 
         m_Quad = null;
         m_Material = null;
         m_apertureTexture = null;
-        m_ApertureFT = null;
+        m_ApertureFourierTransform = null;
+        m_FlareGhosts = null;
+        m_LensSystem = null;
+    }
+
+    void OnDisable()
+    {
+        Clean();
     }
 
     void OnValidate()
     {
-        GraphicsUtils.Destroy(m_apertureTexture);
-        GraphicsUtils.Destroy(m_ApertureFT);
-
-        m_apertureTexture = null;
-        m_ApertureFT = null;
-    }
-
-    class Ghost
-    {
-        Matrix4x4 m_EntranceToAperture;
-        Matrix4x4 m_ApertureToSensor;
-
-        float m_N1, m_N2;
-
-        public Ghost(Matrix4x4 entranceToAperture, Matrix4x4 apertureToSensor, float n1, float n2)
-        {
-            m_EntranceToAperture = entranceToAperture;
-            m_ApertureToSensor = apertureToSensor;
-            m_N1 = n1;
-            m_N2 = n2;
-        }
-
-        public Matrix4x4 ma
-        {
-            get { return m_EntranceToAperture; }
-        }
-
-        public Matrix4x4 ms
-        {
-            get { return m_ApertureToSensor; }
-        }
-
-        public float n1
-        {
-            get { return m_N1; }
-        }
-
-        public float n2
-        {
-            get { return m_N2; }
-        }
+        Clean();
     }
 
     static float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
@@ -385,7 +354,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
  
         float beta = (2.0f * Mathf.PI) / wavelength * n2 * coatingThickness * cos2;
  
-        // Compute the fresnel terms for the first and second interfaces for both s and p polarized
+        // Compute the Fresnel terms for the first and second interfaces for both s and p polarized
         // light
         float r12p = (n2 * cos1 - n1 * cos2) / (n2 * cos1 + n1 * cos2);
         float r12p2 = r12p * r12p;
@@ -408,16 +377,51 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         return (rs + rp) * .5f;
     }
 
-    void OnRenderImage(RenderTexture source, RenderTexture destination)
+    void Prepare()
     {
-        RenderTexture flareTexture = RenderTexture.GetTemporary(source.width / flareBufferDivision, source.height / flareBufferDivision, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear, 1);
-        flareTexture.name = "Flare textrue";
+        // Precomputed steps are:
+        // step 1: Define transforms for the light passing though the lens system
+        // step 2: Find all ghosts projected on the sensor plane (light that reflects twice)
+        // step 3: For each ghost: Compute matrices that maps light from entrance pupil to
+        //          aperture, and from aperture to sensor plane
+        // step 4: Render a texture that holds a signed distance field of the aperture shape
+        // step 5: Compute a Fourier transform of the aperture shape
 
-        // Clear rendertexture, might not be needed.
-        Graphics.Blit(null, flareTexture, material, 7);
+        // Steps to be carried out when rendering are:
+        // For each light that should cause flares:
+        //      Find the angle to- and the screen space position of the light
+        //      for each ghost:
+        //          For the angle of incoming light, map aperture bounds to lens entrance.
+        //          Map the found points on the entrance to the sensor plane.
+        //          Intensity of ghost: ratio between surface area of the ghost on the entrance pupil
+        //                              and the surface area of the whole entrance pupil.
+        //          Color of the ghost: Wavelengths for red, green and blue light (700nm, 510nm, 450nm)
+        //                              are tested against a anti-reflective coating at a semi-random
+        //                              angle, to compute the amount of light that is reflected between interfaces.
+        //      Draw the ghost with the computed color and intensity additively on the screen.
+        // Draw the star-burst texture on position of the light in screen space.
+
+
+        // *** Step 1 ***
+
+        // Concatenate the whole lens system, including aperture into
+        // a single list of elements.
+
+        // Compute transform matrices for each optical interface.
+        // These are:
+        //      - Translation / inverse translation
+        //      - Refraction / inverse refraction
+        //      - Reflection / inverse reflection
+        // These transforms describe how light changes angle
+        // and distance from the optical axis when passing though interfaces.
+        // The inverse transforms are *NOT* the inverse matrices, but transforms
+        // that describes how the light changes when passing an element in the opposite
+        // direction.
 
         int totalInterfaces = interfacesBeforeAperature.Length + interfacesAfterAperature.Length + 1;
 
+        // The inverse translation has the same effect as the forward
+        // so only the forward is kept.
         Matrix4x4[] Translations = new Matrix4x4[totalInterfaces];
 
         Matrix4x4[] Reflections = new Matrix4x4[totalInterfaces];
@@ -430,6 +434,9 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         interfacesBeforeAperature.CopyTo(interfaces, 0);
         interfacesAfterAperature.CopyTo(interfaces, interfacesBeforeAperature.Length + 1);
 
+        // Make the aperture a part of the lens system.
+        // represented as a flat interface with air filling the 
+        // gap to the next interface.
         interfaces[interfacesBeforeAperature.Length] = new Lens()
         {
             distanceToNext = distanceToNextInterface,
@@ -438,9 +445,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             flat = true,
         };
 
+        // T0 is the translation from the entrance of the camera
+        // to the first optical element
         Matrix4x4 T0 = Matrix4x4.identity;
         T0[0, 1] = distanceToFirstInterface;
 
+        // Go though each interface and build the transforms
         float previousRefractiveIndex = kRefractiveIndexAir;
         for (int i = 0; i < totalInterfaces; ++i)
         {
@@ -459,7 +469,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             {
                 R[1, 1] = previousRefractiveIndex / refractiveIndex;
                 RInv[1, 1] =  refractiveIndex / previousRefractiveIndex;
-                // L is just identity
+                // L is identity for flat interfaces
             }
             else
             {
@@ -483,22 +493,34 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             previousRefractiveIndex = refractiveIndex;
         }
 
-        Matrix4x4 SystemEntranceToAperture = T0;
+        // Record the transform that maps rays from entrance to aperture
+        // and from aperture to sensor plane
+        Matrix4x4 systemEntranceToAperture = T0;
+        Matrix4x4 systemApertureToSensor = Translations[interfacesBeforeAperature.Length];
 
         for (int i = 0; i < interfacesBeforeAperature.Length; ++i)
         {
-            SystemEntranceToAperture = Translations[i] * Refractions[i] * SystemEntranceToAperture;
+            systemEntranceToAperture = Translations[i] * Refractions[i] * systemEntranceToAperture;
         }
 
-        // Storage of all the ghosts
-        // contains matrices that maps from entrance to aperture and from aperture to sensor plane
-        List<Ghost> flareGhosts = new List<Ghost>();
+        for (int i = interfacesBeforeAperature.Length; i < totalInterfaces; ++i)
+        {
+            systemApertureToSensor = Translations[i] * Refractions[i] * systemApertureToSensor;
+        }
 
-        // refract until the j'th interface
-        // reflect on j'th interface
-        // refract back to i'th interface
+        m_LensSystem = new LensSystem(systemEntranceToAperture, systemApertureToSensor);
 
-        // refract from i'th interface to the aperature
+        // *** Step 2 and 3 ***
+
+        // A list of ghosts generated by light paths that has reflected
+        // exactly twice
+        m_FlareGhosts = new List<Ghost>();
+
+        // refract until the j th interface
+        // reflect on j th interface
+        // refract back to i th interface
+
+        // refract from i th interface to the aperture
         // for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
         for (int i = 0; i < interfaces.Length - 1; ++i)
         {
@@ -520,38 +542,29 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 }
                 // Debug.Log("r -> " + j + " <- " + i);
 
-                string matrixOrder = "";
-
                 Matrix4x4 entranceToAperture = T0;
 
-                matrixOrder = matrixOrder + "T0";
-
-                // Refract on all interfaces up to j'th interface
+                // Refract on all interfaces up to j  th interface
                 for (int k = 0; k < j; ++k)
                 {
-                    matrixOrder = "T" + (k+1) + " R" + (k+1) + " " + matrixOrder;
                     entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
                 }
 
-                // reflect from j'th interface
-                matrixOrder = "L" + (j+1) + " " + matrixOrder;
+                // reflect from j th interface
                 entranceToAperture = Reflections[j] * entranceToAperture;
 
-                // refract in reverse order from j'th interface back to the i'th interface
+                // refract in reverse order from j th interface back to the i th interface
                 for (int k = j - 1; k > i; --k)
                 {
-                    matrixOrder = "Ri" + (k+1) + " T" + (k+1) + " " + matrixOrder;
                     entranceToAperture =  RefractionsInverse[k] * Translations[k] * entranceToAperture;
                 }
 
-                // refelct on the i'th interface
-                matrixOrder = "T" + (i+1) + " " + "Li" + (i+1) + " T" + (i+1) + " " + matrixOrder;
+                // reflect on the i th interface
                 entranceToAperture = Translations[i] * ReflectionsInverse[i] * Translations[i] * entranceToAperture;
 
-                // refract to the aperature
+                // refract to the aperture
                 for (int k = i + 1; k < interfacesBeforeAperature.Length; ++k)
                 {
-                    matrixOrder = "T" + (k+1) + " R" + (k+1) + " " + matrixOrder;
                     entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
                 }
 
@@ -569,6 +582,122 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
+
+        // *** Step 4 ***
+
+        // If the aperture texture is not yet released destroy it first
+        if (m_apertureTexture)
+        {
+            m_apertureTexture.Release();
+            GraphicsUtils.Destroy(m_apertureTexture);
+            m_apertureTexture = null;
+        }
+
+        // TODO: Better naming for the temporary texture
+        m_apertureTexture = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
+        RenderTexture temporary = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
+
+        m_apertureTexture.filterMode = FilterMode.Bilinear;
+        temporary.filterMode = FilterMode.Bilinear;
+
+        temporary.Create();
+        m_apertureTexture.Create();
+
+        // Draw the aperture shape as a signed distance field
+        material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
+        material.SetFloat(Uniforms._Smoothing, smoothing);
+
+        Graphics.Blit(null, m_apertureTexture, material, 8);
+
+        // This loop allows to experiment with blurring the aperture texture
+        for (int i = 0; i < 0; ++i)
+        {
+            material.EnableKeyword("BLUR_PASS_VERTICAL");
+            Graphics.Blit(m_apertureTexture, temporary, material, 11);
+
+            material.DisableKeyword("BLUR_PASS_VERTICAL");
+            Graphics.Blit(temporary, m_apertureTexture, material, 11);
+        }
+
+        temporary.Release();
+        temporary = null;
+
+        // *** Step 5 ***
+
+        if (m_ApertureFourierTransform)
+        {
+            m_ApertureFourierTransform.Release();
+            GraphicsUtils.Destroy(m_ApertureFourierTransform);
+            m_ApertureFourierTransform = null;
+        }
+
+        // Create the RenderTexture that the star-burst will be placed on
+        m_ApertureFourierTransform = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
+        m_ApertureFourierTransform.Create();
+
+        // Create Temporary RenderTextures
+        // The first 4 are used to compute the FFT of the aperture
+        // index 0 and 1 are used for the target real and imaginary values for the row pass of the FFT
+        // index 2 and 3 are used for the target real and imaginary of values for the column pass of the FFT
+        // index 4 is first used for a temporary scaled version of the aperture
+        // later index 4 is used as a `pingpong` buffer to do a Gaussian blur on the FFT texture
+        const int fftTextureCount = 5;
+        RenderTexture[] fftTextures = new RenderTexture[fftTextureCount];
+
+        for (int i = 0; i < fftTextureCount; ++i)
+        {
+            fftTextures[i] = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
+            fftTextures[i].enableRandomWrite = true;
+            fftTextures[i].Create();
+        }
+
+        int kernel = starburstShader.FindKernel("ButterflySLM");
+
+        int butterflyCount = (int) (Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
+
+        starburstShader.SetInt("_ButterflyCount", butterflyCount);
+
+        // starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
+        starburstShader.SetTexture(kernel, "TextureSourceR", apertureTexture);
+
+        starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[0]);
+        starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[1]);
+        starburstShader.SetInt("_RowPass", 1);
+        starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
+
+        starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[0]);
+        starburstShader.SetTexture(kernel, "TextureSourceI", fftTextures[1]);
+        starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[2]);
+        starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[3]);
+        starburstShader.SetInt("_RowPass", 0);
+        starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
+
+        material.SetTexture("_Real", fftTextures[2]);
+        material.SetTexture("_Imaginary", fftTextures[3]);
+        Graphics.Blit(null, m_ApertureFourierTransform, material, 9);
+
+        for (int i = 0; i < 2; ++i)
+        {
+            material.EnableKeyword("BLUR_PASS_VERTICAL");
+            Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, 11);
+
+            material.DisableKeyword("BLUR_PASS_VERTICAL");
+            Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, 11);
+        }
+
+        for (int i = 0; i < fftTextureCount; ++i)
+        {
+            fftTextures[i].Release();
+        }
+    }
+
+    void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        RenderTexture flareTexture = RenderTexture.GetTemporary(source.width / flareBufferDivision, source.height / flareBufferDivision, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear, 1);
+        flareTexture.name = "Flare texture";
+
+        // Clear RenderTexture, might not be needed.
+        Graphics.Blit(null, flareTexture, material, 7);
 
         // Light position in NDC
         Vector3 lightPositionScreenSpace = Vector3.up;
@@ -592,7 +721,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
 
         // Axis in screen space that intersects the center of the screen and the light projected
-        // in screem in NDC
+        // in screen in NDC
         Vector2 axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
         axis.Normalize();
         axis.y *= -1f;
@@ -628,21 +757,22 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             flareTansform = Matrix4x4.Translate(new Vector3(axis.x, axis.y * _camera.aspect, 0f) * center) * flareTansform;
 
             // entrancePupil = H_a / system.M_a[0][0];
-            // Intensity = Sqr(H_e1 - H_e2) / Sqr(2 * entrancePupil);
-            // Intensity /= Sqr(2 * Radius);
-            // TODO: Check that intenity makes sense
+            // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
+            // Intensity /= Square(2 * Radius);
+            // TODO: Check that intensity makes sense
             // TODO: Check that parameters are given correctly
-            float entrancePupil = (1f / aperture) / SystemEntranceToAperture[0, 0];
+            float entrancePupil = (1f / aperture) / lensSystem.entranceToAperture[0, 0];
             float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
-            intensity = intensity / (Mathf.Pow(radius, 2f) * sensorSize);
-            intensity = intensity * (1f - angleToLight);
+            intensity = intensity / (Mathf.Pow(sensorSize, 2f));
+            // intensity = intensity * (Mathf.PI - angleToLight);
             intensity = Mathf.Clamp01(intensity);
+            intensity = .05f;
 
             // Compute the color of the flare
             Color flareColor = new Color(0, 0, 0, 0);
             flareColor.a = intensity;
 
-            // Angle to the light, but clipped to avoid extreeme values
+            // Angle to the light, but clipped to avoid extreme values
             // This should be clipped to avoid the critical angle of the lens system.
             float angle = Mathf.Max(Mathf.Min(.4f, angleToLight), .1f);
 
@@ -658,10 +788,10 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
             // Convert the reflected color to HS
             float h, s, v;
-            Color.RGBToHSV(flareColor, out h, out s, out v);
+            Color.RGBToHSV(flareColor * mainLight.color, out h, out s, out v);
 
             // Set the intensity of the color
-            v = .1f;//intensity;
+            v = intensity;
 
             // Convert back to RGB space
             flareColor = Color.HSVToRGB(h, s, v);
@@ -679,35 +809,35 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             Graphics.DrawMeshNow(quad, Matrix4x4.identity, 4);
         }
 
-        // Draw rthe starburst
+        // Draw the star-burst
         material.SetFloat(Uniforms._Intensity, 4f);
         material.SetColor(Uniforms._FlareColor, new Color(1f, 1f, 1f, 1f) * .75f);
 
         Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
 
-        float starburstScale = starburstBaseSize * Mathf.Log(aperture + 1f);
+        float starburstScale = starburstBaseSize;
         Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
         starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
 
         material.SetMatrix(Uniforms._FlareTransform, starburstTansform);
 
-        material.SetTexture(Uniforms._ApertureTexture, apertureFT);
+        material.SetTexture(Uniforms._ApertureTexture, apertureFourierTransform);
 
         Graphics.SetRenderTarget(flareTexture);
         material.SetPass(4);
         Graphics.DrawMeshNow(quad, Matrix4x4.identity, 4);
 
-        Graphics.Blit(flareTexture, source, material, 6);
+        // Graphics.Blit(source, flareTexture, material, 6);
 
         material.SetTexture(Uniforms._FlareTexture, flareTexture);
-        Graphics.Blit(source, destination);
+        Graphics.Blit(source, destination, material, 6);
 
         RenderTexture.ReleaseTemporary(flareTexture);
 
         if (apertureFFTDebug)
         {
             material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
-            material.SetTexture(Uniforms._ApertureFTTexture, apertureFT);
+            material.SetTexture(Uniforms._ApertureFTTexture, apertureFourierTransform);
             Graphics.Blit(null, destination, material, 10);
         }
     }

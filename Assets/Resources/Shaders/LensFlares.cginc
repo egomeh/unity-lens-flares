@@ -2,6 +2,9 @@
 
 #define HALF_MAX        65504.0
 
+#define M_PI 3.1415926535897932384626433832795
+#define M_PI2 6.28318530718
+
 sampler2D _MainTex;
 float4 _MainTex_TexelSize;
 float4 _MainTex_ST;
@@ -132,7 +135,7 @@ half3 DownsampleBox13Tap(sampler2D tex, float2 uv, float2 texelSize)
     return o;
 }
 
-// 9-tap bilinear upsampler (tent filter)
+// 9-tap bilinear up-sampler (tent filter)
 half3 UpsampleTent(sampler2D tex, float2 uv, float2 texelSize, float sampleScale)
 {
     float4 d = texelSize.xyxy * float4(1.0, 1.0, -1.0, 0.0) * sampleScale;
@@ -215,4 +218,39 @@ half4 FragAnamorphicBlooom(VaryingsDefault i) : SV_Target
     half4 bloomColor = tex2D(_BloomTex, bloomSample);
     bloomColor *= _Bloom_Settings.y;
     return sceneColor + bloomColor;
+}
+
+float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
+{
+    // Apply Snell's law to get the other angles
+    float angle2 = asin(n1 * asin(angle) / n2);
+    float angle3 = asin(n1 * asin(angle) / n3);
+ 
+    float cos1 = cos(angle);
+    float cos2 = cos(angle2);
+    float cos3 = cos(angle3);
+ 
+    float beta = (2. * M_PI) / wavelength * n2 * coatingThickness * cos2;
+ 
+    // Compute the Fresnel terms for the first and second interfaces for both s and p polarized
+    // light
+    float r12p = (n2 * cos1 - n1 * cos2) / (n2 * cos1 + n1 * cos2);
+    float r12p2 = r12p * r12p;
+ 
+    float r23p = (n3 * cos2 - n2 * cos3) / (n3 * cos2 + n2 * cos3);
+    float r23p2 = r23p * r23p;
+ 
+    float rp = (r12p2 + r23p2 + 2. * r12p * r23p * cos(2. * beta)) /
+        (1. + r12p2 * r23p2 + 2. * r12p * r23p * cos(2. * beta));
+ 
+    float r12s = (n1 * cos1 - n2 * cos2) / (n1 * cos1 + n2 * cos2);
+    float r12s2 = r12s * r12s;
+ 
+    float r23s = (n2 * cos2 - n3 * cos3) / (n2 * cos2 + n3 * cos3);
+    float r23s2 = r23s * r23s;
+ 
+    float rs = (r12s2 + r23s2 + 2. * r12s * r23s * cos(2. * beta)) /
+        (1. + r12s2 * r23s2 + 2. * r12s * r23s * cos(2. * beta));
+ 
+    return (rs + rp) * .5;
 }
