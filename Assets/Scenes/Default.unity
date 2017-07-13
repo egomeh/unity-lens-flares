@@ -221,7 +221,7 @@ MonoBehaviour:
   starburstShader: {fileID: 7200000, guid: d7507f5ca181693478eaa56cca1a11a4, type: 3}
   mainLight: {fileID: 747664051}
   distanceToFirstInterface: 10
-  flareBufferDivision: 2
+  flareBufferDivision: 1
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -251,7 +251,7 @@ MonoBehaviour:
   aperture: 4
   distanceToNextInterface: 10
   aperatureEdges: 6
-  smoothing: 0
+  smoothing: 0.17
   starburstBaseSize: 0.423
   interfacesAfterAperature:
   - distanceToNext: 3.85
@@ -269,7 +269,7 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  antiReflectiveCoatingWavelength: 615
+  antiReflectiveCoatingWavelength: 1000
   apertureFFTDebug: 0
 --- !u!81 &1764788230
 AudioListener:
