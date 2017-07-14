@@ -57,7 +57,7 @@
                 float angle = M_PI2 * (float)i / (float)_ApertureEdges;
                 float2 axis = float2(cos(angle), sin(angle));
                 // distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
-                distance = max(distance, dot(axis, coord));
+                distance = smax(distance, dot(axis, coord), _Smoothing);
             }
 
             float apothem = cos(M_PI / _ApertureEdges);

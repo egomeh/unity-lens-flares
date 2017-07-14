@@ -43,7 +43,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
         public static readonly int _Intensity = Shader.PropertyToID("_Intensity");
         public static readonly int _FlareColor = Shader.PropertyToID("_FlareColor");
-        public static readonly int _ApertureScale = Shader.PropertyToID("_ApertureScale");
     }
 
     class Ghost
