@@ -133,7 +133,7 @@ Light:
   m_Enabled: 1
   serializedVersion: 8
   m_Type: 1
-  m_Color: {r: 0.83823526, g: 0.9464503, b: 1, a: 1}
+  m_Color: {r: 1, g: 0.9474645, b: 0.72794116, a: 1}
   m_Intensity: 1
   m_Range: 10
   m_SpotAngle: 30
@@ -248,11 +248,11 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 4
+  aperture: 3
   distanceToNextInterface: 10
-  aperatureEdges: 6
-  smoothing: 0.17
-  starburstBaseSize: 0.423
+  aperatureEdges: 5
+  smoothing: 0.46
+  starburstBaseSize: 0.38
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -269,7 +269,7 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  antiReflectiveCoatingWavelength: 1000
+  antiReflectiveCoatingWavelength: 626
   apertureFFTDebug: 0
 --- !u!81 &1764788230
 AudioListener:
@@ -322,7 +322,7 @@ Camera:
   m_TargetDisplay: 0
   m_TargetEye: 3
   m_HDR: 1
-  m_AllowMSAA: 1
+  m_AllowMSAA: 0
   m_ForceIntoRT: 0
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
@@ -334,8 +334,8 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_LocalRotation: {x: -0.048583273, y: 0.9152746, z: 0.3829247, w: 0.11524218}
-  m_LocalPosition: {x: -928, y: -8942, z: 8210}
+  m_LocalRotation: {x: -0.08119373, y: 0.8943948, z: 0.4012687, w: 0.18013605}
+  m_LocalPosition: {x: -927.9707, y: -8941.92, z: 8209.919}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

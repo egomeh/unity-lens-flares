@@ -22,6 +22,10 @@
 
         sampler2D _ApertureFFT;
 
+        sampler2D _TransmittanceResponse;
+        float _AngleToLight;
+        float4 _LightColor;
+
         int _ApertureEdges;
         float _Smoothing;
 
@@ -67,15 +71,21 @@
             return lerp(distance, circle, _Smoothing);
         }
 
+        float rand(float3 co)
+        {
+            return frac(sin( dot(co.xyz ,float3(12.9898,78.233,45.5432) )) * 43758.5453);
+        }
+
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
+            coord *= _ApertureScale;
             float polygon = PolygonShape(coord);
 
             polygon = smoothstep(0., 1., pow(polygon + .2, 48.));
             polygon = saturate(1. - polygon);
 
-            return polygon;
+            return step(.8, polygon);
         }
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
@@ -110,6 +120,11 @@
             float4 flareColor = tex2D(_FlareTexture, i.texcoord);
 
             return sceneColor + flareColor;
+        }
+
+        float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
+        {
+            return tex2D(_FlareTexture, i.texcoord);
         }
 
         float4 ClearFragment(VaryingsDefault i) : SV_Target
@@ -161,6 +176,53 @@
             blurred += tex2D(_MainTex, i.texcoord) * 0.126063;
 
             return blurred;
+        }
+
+        float4 ToneMapFragment(VaryingsDefault i) : SV_Target
+        {
+            float exposure = .0002;
+            float gamma = 0.6;
+
+            float intensity = tex2D(_MainTex, i.texcoord).r;
+
+
+            // Exposure tone mapping
+            float toneMapped = 1. - exp(-intensity * exposure);
+            // Gamma correction 
+            toneMapped = pow(toneMapped, 1. / gamma);
+
+            return toneMapped;
+        }
+
+        float4 StarburstFragment(VaryingsDefault i) : SV_Target
+        {
+            float2 coord = i.texcoord * 2. - 1.;
+
+            float2 coordRed = coord / _LightColor.r;
+            float2 coordGreen = coord / _LightColor.g;
+            float2 coordBlue = coord / _LightColor.b;
+
+            float2 texcoordRed = coordRed * .5 + .5;
+            float2 texcoordGreen = coordGreen  * .5 + .5;
+            float2 texcoordBlue = coordBlue * .5 + .5;
+
+            float d1 = tex2D(_ApertureTexture, texcoordRed).r;
+            float d2 = tex2D(_ApertureTexture, texcoordGreen).r;
+            float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
+            float d = length(float3(d1, d2, d3));
+            //float4 transmittance = tex2D(_TransmittanceResponse, float2(_AngleToLight, 0.));
+            return float4(d1, d2, d3, d);
+        }
+
+        float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
+        {
+            float4 color = tex2D(_MainTex, i.texcoord);
+
+            float2 coord = i.texcoord * 2. - 1.;
+            coord *= 1.2;
+
+            float distanceFromCenter = length(coord);
+            return color * (1. - exp((distanceFromCenter - .95)));
         }
 
         ENDCG
@@ -261,6 +323,40 @@
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment GaussianBlurFragment5tap
+            ENDCG
+        }
+
+        Pass // 12
+        {
+            Blend Off
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment ToneMapFragment
+            ENDCG
+        }
+
+        Pass // 13
+        {
+            CGPROGRAM
+            #pragma vertex VertDefaultBlit
+            #pragma fragment StarburstFragment
+            ENDCG
+        }
+
+        Pass // 14
+        {
+            Blend Off
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment EdgeFadeFragment
+            ENDCG
+        }
+
+        Pass // 15
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment ComposeOverlayFragment
             ENDCG
         }
     }
