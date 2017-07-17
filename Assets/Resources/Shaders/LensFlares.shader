@@ -23,7 +23,6 @@
         sampler2D _ApertureFFT;
 
         sampler2D _TransmittanceResponse;
-        float _AngleToLight;
         float4 _LightColor;
 
         int _ApertureEdges;
@@ -31,7 +30,6 @@
 
         float4 _FlareColor;
         float4 _LineColor;
-        float4 _Axis;
         float4 _LightPositionIndicator;
         float4 _LightPositionColor;
 
@@ -64,16 +62,9 @@
                 distance = smax(distance, dot(axis, coord), _Smoothing);
             }
 
-            float apothem = cos(M_PI / _ApertureEdges);
-            float radius = apothem / (2.  * sin(M_PI / _ApertureEdges));
             float circle = saturate(length(coord));
 
             return lerp(distance, circle, _Smoothing);
-        }
-
-        float rand(float3 co)
-        {
-            return frac(sin( dot(co.xyz ,float3(12.9898,78.233,45.5432) )) * 43758.5453);
         }
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
@@ -161,17 +152,17 @@
 
             float4 blurred = 0.;
 
-            blurred += tex2D(_MainTex, i.texcoord + offset * -4.) * 0.091638;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 4.) * 0.091638;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -4.) * .091638;
+            blurred += tex2D(_MainTex, i.texcoord + offset *  4.) * .091638;
 
-            blurred += tex2D(_MainTex, i.texcoord + offset * -3.) * 0.105358;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 3.) * 0.105358;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -3.) * .105358;
+            blurred += tex2D(_MainTex, i.texcoord + offset *  3.) * .105358;
 
-            blurred += tex2D(_MainTex, i.texcoord + offset * -2.) * 0.116402;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 2.) * 0.116402;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -2.) * .116402;
+            blurred += tex2D(_MainTex, i.texcoord + offset *  2.) * .116402;
 
-            blurred += tex2D(_MainTex, i.texcoord + offset * -1.) * 0.123572;
-            blurred += tex2D(_MainTex, i.texcoord + offset * 1.) * 0.123572;
+            blurred += tex2D(_MainTex, i.texcoord + offset * -1.) * .123572;
+            blurred += tex2D(_MainTex, i.texcoord + offset *  1.) * .123572;
 
             blurred += tex2D(_MainTex, i.texcoord) * 0.126063;
 
@@ -180,18 +171,7 @@
 
         float4 ToneMapFragment(VaryingsDefault i) : SV_Target
         {
-            float exposure = .0002;
-            float gamma = 0.6;
-
-            float intensity = tex2D(_MainTex, i.texcoord).r;
-
-
-            // Exposure tone mapping
-            float toneMapped = 1. - exp(-intensity * exposure);
-            // Gamma correction 
-            toneMapped = pow(toneMapped, 1. / gamma);
-
-            return toneMapped;
+            return tex2D(_MainTex, i.texcoord).r * .0001;
         }
 
         float4 StarburstFragment(VaryingsDefault i) : SV_Target
@@ -210,7 +190,7 @@
             float d2 = tex2D(_ApertureTexture, texcoordGreen).r;
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
-            //float4 transmittance = tex2D(_TransmittanceResponse, float2(_AngleToLight, 0.));
+
             return float4(d1, d2, d3, d);
         }
 
@@ -224,7 +204,6 @@
             float distanceFromCenter = length(coord);
             return color * (1. - exp((distanceFromCenter - .95)));
         }
-
         ENDCG
 
         Pass // 0

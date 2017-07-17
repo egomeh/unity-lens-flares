@@ -1,6 +1,6 @@
 #include "UnityCG.cginc"
 
-#define HALF_MAX        65504.0
+#define HALF_MAX 65504.0
 
 #define M_PI 3.1415926535897932384626433832795
 #define M_PI2 6.28318530718
@@ -17,6 +17,10 @@ float4 _Bloom_Settings;
 
 float4 _FlareOffsetAndScale;
 float4x4 _FlareTransform;
+
+float _AngleToLight;
+float4 _Axis;
+float _Aperture;
 
 struct AttributesDefault
 {
@@ -52,27 +56,6 @@ VaryingsDefault VertDefaultBlit(AttributesDefault v)
     o.texcoord = v.uv;
 
     return o;
-}
-
-half4 EncodeHDR(float3 rgb)
-{
-#if USE_RGBM
-    rgb *= 1.0 / 8.0;
-    float m = max(max(rgb.r, rgb.g), max(rgb.b, 1e-6));
-    m = ceil(m * 255.0) / 255.0;
-    return half4(rgb / m, m);
-#else
-    return half4(rgb, 0.0);
-#endif
-}
-
-float3 DecodeHDR(half4 rgba)
-{
-#if USE_RGBM
-    return rgba.rgb * rgba.a * 8.0;
-#else
-    return rgba.rgb;
-#endif
 }
 
 float Max3(float a, float b, float c)
