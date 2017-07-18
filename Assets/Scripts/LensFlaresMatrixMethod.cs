@@ -48,10 +48,13 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _TransmittanceResponse = Shader.PropertyToID("_TransmittanceResponse");
         public static readonly int _AngleToLight = Shader.PropertyToID("_AngleToLight");
         public static readonly int _LightColor = Shader.PropertyToID("_LightColor");
+        public static readonly int _LightWavelength = Shader.PropertyToID("_LightWavelength");
         public static readonly int _Axis = Shader.PropertyToID("_Axis");
+        public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
 
         public static readonly int _GhostDataBuffer = Shader.PropertyToID("_GhostDataBuffer");
         public static readonly int _GhostIndex = Shader.PropertyToID("_GhostIndex");
+        public static readonly int _Aperture = Shader.PropertyToID("_Aperture");
     }
 
     enum FlareShaderPasses
@@ -259,8 +262,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
     }
 
-    private Shader m_ShaderInstanced;
-    private Shader shaderInstanced
+    Shader m_ShaderInstanced;
+    Shader shaderInstanced
     {
         get
         {
@@ -274,7 +277,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     }
 
 
-    private Material m_MaterialInstanced;
+    Material m_MaterialInstanced;
     Material materialInstanced
     {
         get
@@ -907,12 +910,17 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         m_AngleTrasnmissionResponseTextrue.SetPixels(pixels);
         m_AngleTrasnmissionResponseTextrue.Apply();
 
+        if (m_GhostDataBuffer != null)
+        {
+            m_GhostDataBuffer.Dispose();
+        }
+
         // *** EXPERIMENTAL STEP *** Put all the needed data for the ghosts in a structured buffer
         m_GhostDataBuffer = new ComputeBuffer(m_FlareGhosts.Count, Marshal.SizeOf(typeof(GhostGPUData)));
 
         GhostGPUData[] ghostData = new GhostGPUData[m_FlareGhosts.Count];
 
-        for (int i = 0; i < m_FlareGhosts.Count; ++i)
+        for (int i = 0; i < flareGhosts.Count; ++i)
         {
             ghostData[i].entranceToAperture = flareGhosts[i].ma;
             ghostData[i].apertureToSensor = flareGhosts[i].ms;
@@ -970,7 +978,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         int canvasWidth = Screen.width / flareBufferDivision;
         int canvasHeight = Screen.height / flareBufferDivision;
 
-        m_CommandBuffer.GetTemporaryRT(Uniforms._FlareCanvas, canvasWidth, canvasHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGB32);
+        m_CommandBuffer.GetTemporaryRT(Uniforms._FlareCanvas, canvasWidth, canvasHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
 
         RenderTargetIdentifier screenBufferIdentifier = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
 
@@ -988,19 +996,22 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
             // Set the axis on which the ghost should be drawn
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
+            m_CommandBuffer.SetGlobalFloat(Uniforms._Aperture, aperture);
             m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
+            m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
+            m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
 
-            Matrix4x4[] dummyBuffer = new Matrix4x4[flareGhosts.Count];
-            for (int i = 0; i < dummyBuffer.Length; ++i)
+            Matrix4x4[] matrices = new Matrix4x4[flareGhosts.Count];
+            for (int i = 0; i < matrices.Length; ++i)
             {
-                dummyBuffer[i] = Matrix4x4.identity;
+                matrices[i] = Matrix4x4.identity;
             }
 
-            m_CommandBuffer.DrawMeshInstanced(quad, 0, materialInstanced, 0, dummyBuffer, flareGhosts.Count);
+            m_CommandBuffer.DrawMeshInstanced(quad, 0, materialInstanced, 0, matrices, flareGhosts.Count);
         }
         else
         {
-            // Draw all the ghosts
+            // Drop a draw call per ghost
             foreach (Ghost ghost in flareGhosts)
             {
                 // Aperture projected onto the entrance
@@ -1100,6 +1111,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         m_CommandBuffer.ReleaseTemporaryRT(Uniforms._FlareCanvas);
         m_CommandBuffer.EndSample("Lens Flares");
     }
+
 
     /*
     void OnRenderImage(RenderTexture source, RenderTexture destination)

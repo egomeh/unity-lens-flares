@@ -191,7 +191,7 @@
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return float4(d1, d2, d3, d);
+            return max(0., float4(d1, d2, d3, d));
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
@@ -202,7 +202,7 @@
             coord *= 1.2;
 
             float distanceFromCenter = length(coord);
-            return color * (1. - exp((distanceFromCenter - .95)));
+            return color * (1. - exp((distanceFromCenter - .99)));
         }
         ENDCG
 
