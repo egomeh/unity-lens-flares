@@ -812,7 +812,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         // Blur the aperture texture
         // But maybe get heavier blur rather than run the same blur many times
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 32; ++i)
         {
             material.EnableKeyword("BLUR_PASS_VERTICAL");
             Graphics.Blit(m_apertureTexture, temporary, material, (int)FlareShaderPasses.GaussianBlur);
@@ -1045,7 +1045,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 // Intensity /= Square(2 * Radius);
                 // TODO: Check that intensity makes sense
                 // TODO: Check that parameters are given correctly
-                float entrancePupil = 10f / lensSystem.entranceToAperture[0, 0];
+                float entrancePupil = 11.3f / lensSystem.entranceToAperture[0, 0];
                 float upper = Mathf.Pow(H_e1 - H_e2, 2f);
                 float lower = Mathf.Pow(2f * entrancePupil, 2f);
                 float intensity = upper / lower;

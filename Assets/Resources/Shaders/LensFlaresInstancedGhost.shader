@@ -197,9 +197,9 @@
 
             o.debug = float4(hsv, 1.);
 
-            hsv.z = .05;
+            hsv.z = .05 * saturate((1. - _AngleToLight));
 
-            o.color = HsvToRgb(hsv);
+            o.color = HsvToRgb(hsv) * step(.01, radius);
 
             return o;
         }
