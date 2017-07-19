@@ -118,7 +118,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public Vector4 refractiveIncidences;
     }
 
-
     class LensSystem
     {
         Matrix4x4 m_EntranceToAperture;
@@ -213,7 +212,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     public float antiReflectiveCoatingWavelength = 450;
 
     public bool apertureFFTDebug = false;
-    public bool drawInstancedGhosts = false;
+    public bool preferInstanced = false;
 
     Camera m_Camera;
     Camera _camera
@@ -989,7 +988,9 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
         // Offer both instanced drawing as well as per-ghost draw call
-        if (drawInstancedGhosts)
+        // But only take the instancing path if instancing is actually supported
+        // TODO: Eventually, this branching should be fully automatic
+        if (preferInstanced && SystemInfo.supportsInstancing)
         {
             // Set the ghost data
             m_CommandBuffer.SetGlobalBuffer(Uniforms._GhostDataBuffer, ghostDataBuffer);
@@ -1000,6 +1001,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
             m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
             m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
+            m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, mainLight.color);
 
             Matrix4x4[] matrices = new Matrix4x4[flareGhosts.Count];
             for (int i = 0; i < matrices.Length; ++i)
@@ -1018,9 +1020,11 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 float H_e1 = (1f / aperture - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
                 float H_e2 = (- 1f / aperture - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
 
+                Matrix4x4 msma = ghost.ms * ghost.ma;
+
                 // Map to sensor plane
-                float H_p1 = (ghost.ms * ghost.ma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
-                float H_p2 = (ghost.ms * ghost.ma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
+                float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
+                float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
 
                 // Project on to image circle
                 float sensorSize = 43.3f;
@@ -1041,16 +1045,14 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 // Intensity /= Square(2 * Radius);
                 // TODO: Check that intensity makes sense
                 // TODO: Check that parameters are given correctly
-                float entrancePupil = (1f / aperture) / lensSystem.entranceToAperture[0, 0];
-                float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
-                intensity = intensity / (Mathf.Pow(sensorSize, 2f));
+                float entrancePupil = 10f / lensSystem.entranceToAperture[0, 0];
+                float upper = Mathf.Pow(H_e1 - H_e2, 2f);
+                float lower = Mathf.Pow(2f * entrancePupil, 2f);
+                float intensity = upper / lower;
+                intensity = intensity / (Mathf.Pow(radius, 2f));
                 // intensity = intensity * (Mathf.PI - angleToLight);
-                intensity = Mathf.Clamp01(intensity);
-                intensity = .05f;
-
-                // Compute the color of the flare
-                Color flareColor = new Color(0, 0, 0, 0);
-                flareColor.a = intensity;
+                //intensity = Mathf.Clamp01(intensity);
+                //intensity = .05f;
 
                 // Angle to the light, but clipped to avoid extreme values
                 // This should be clipped to avoid the critical angle of the lens system.
@@ -1061,11 +1063,11 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
                 // Check how much red, green and blue light is reflected at the first interface the ray reflects at
                 // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
+                Color flareColor = new Color(0, 0, 0, 0);
                 flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-
-
+                
                 // Convert the reflected color to HS
                 float h, s, v;
                 Color.RGBToHSV(flareColor * mainLight.color, out h, out s, out v);
@@ -1074,7 +1076,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                 v = intensity;
 
                 // Convert back to RGB space
-                flareColor = Color.HSVToRGB(h, s, v);
+                flareColor = Color.HSVToRGB(h, s, v, true);
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, intensity);

@@ -16,6 +16,7 @@
         float4 _Axis;
         float _Aperture;
         float4 _LightWavelength;
+        float4 _LightColor;
 
         float4x4 _SystemEntranceToAperture;
 
@@ -33,6 +34,7 @@
             float4 vertex : SV_POSITION;
             float2 texcoord : TEXCOORD0;
             float3 color : COLOR0;
+            float4 debug : TEXCOORD1;
         };
 
         struct GhostData
@@ -88,7 +90,7 @@
             float r23p2 = r23p * r23p;
  
             float rp = (r12p2 + r23p2 + 2. * r12p * r23p * cos(2. * beta)) /
-                (1. + r12p2 * r23p2 + 2. * r12p * r23p * cos(2. * beta));
+                  (1. + r12p2 * r23p2 + 2. * r12p * r23p * cos(2. * beta));
  
             float r12s = (n1 * cos1 - n2 * cos2) / (n1 * cos1 + n2 * cos2);
             float r12s2 = r12s * r12s;
@@ -97,7 +99,7 @@
             float r23s2 = r23s * r23s;
  
             float rs = (r12s2 + r23s2 + 2. * r12s * r23s * cos(2. * beta)) /
-                (1. + r12s2 * r23s2 + 2. * r12s * r23s * cos(2. * beta));
+                  (1. + r12s2 * r23s2 + 2. * r12s * r23s * cos(2. * beta));
  
             return (rs + rp) * .5;
         }
@@ -106,6 +108,7 @@
         {
             VaryingsGhostInstancedDraw o;
 
+            // Setup instancing specifics
             UNITY_SETUP_INSTANCE_ID(v);
 
         #if defined(INSTANCING_ON)
@@ -114,8 +117,10 @@
             uint instanceID = 0;
         #endif
 
+            // Get the data for the current ghost from the compute buffer
             GhostData currentGhost = _GhostDataBuffer[instanceID];
 
+            // Extract the matrices that maps rays from entrance through the lens
             float4x4 ma = currentGhost.entranceToAperture;
             float4x4 ms = currentGhost.apertureToSensor;
 
@@ -138,19 +143,19 @@
 
             float2 scale = float2(radius, radius * aspect);
 
-            float4x4 ghostScale =
+            float2 ghostOffset = _Axis.xy * center;
+            ghostOffset.y *= aspect;
+
+            // TODO: These could be 3x3, but for now, map to C# 1:1
+            matrix ghostScale =
             {
-                radius,              0., 0., 0.,
-                0.,     radius * aspect, 0., 0.,
-                0.,                  0., 1., 0.,
-                0.,                  0., 0., 1.
+                scale.x,     0., 0., 0.,
+                0.,     scale.y, 0., 0.,
+                0.,          0., 1., 0.,
+                0.,          0., 0., 1.
             };
 
-            float2 ghostOffset = _Axis.xy;
-            ghostOffset.y *= aspect;
-            ghostOffset *= center;
-
-            float4x4 ghostTranslation =
+            matrix ghostTranslation =
             {
                 1., 0., 0., ghostOffset.x,
                 0., 1., 0., ghostOffset.y,
@@ -158,28 +163,40 @@
                 0., 0., 0.,            1.
             };
 
-            float4x4 ghostTransform = mul(ghostScale, ghostTranslation);
+            matrix ghostTransform = mul(ghostTranslation, ghostScale);
 
-            o.vertex = mul(ghostTransform, float4(v.vertex, 1.));
-            o.vertex.w = 1.;
-            o.vertex = mul(UNITY_MATRIX_M, o.vertex);
+            // Why is this line needed? UNITY_MATRIX_M should be identity!?!?!?
+            // RenderDoc also says that it's identity???
+            o.vertex = mul(UNITY_MATRIX_M, float4(v.vertex, 1.));
+
+            o.vertex = mul(ghostTransform, o.vertex);
+
             o.texcoord = v.uv;
 
             float n1 = currentGhost.refractiveIncidences.x;
             float n2 = currentGhost.refractiveIncidences.y;
 
             // TODO: Figure out what exactly this means.
-            float d = _LightWavelength.w / 4.0f / n1;
+            float d = _LightWavelength.w / 4.0 / n1;
 
             // TODO: this is very likely to be wrong, sad!
-            float angle = max(min(.8f, _AngleToLight), .2f);
+            float angle = max(min(.4, _AngleToLight), .0);
 
+            // TODO: Make the shader version of reflectance code vector based instead of 3 calls
             float3 reflectedRGB = 0.;
             reflectedRGB.r = Reflectance(_LightWavelength.r, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
             reflectedRGB.g = Reflectance(_LightWavelength.g, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
             reflectedRGB.b = Reflectance(_LightWavelength.b, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
 
-            float3 hsv = RgbToHsv(reflectedRGB);
+            // normalize the color in order to keep RGB -> HSV conversion stable
+            reflectedRGB = normalize(reflectedRGB);
+
+            float3 flareColor = reflectedRGB * _LightColor.rgb;
+
+            float3 hsv = RgbToHsv(flareColor);
+
+            o.debug = float4(hsv, 1.);
+
             hsv.z = .05;
 
             o.color = HsvToRgb(hsv);
