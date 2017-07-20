@@ -171,7 +171,7 @@
 
         float4 ToneMapFragment(VaryingsDefault i) : SV_Target
         {
-            return tex2D(_MainTex, i.texcoord).r * .0001;
+            return tex2D(_MainTex, i.texcoord).r * 1e-4;
         }
 
         float4 StarburstFragment(VaryingsDefault i) : SV_Target
@@ -199,7 +199,6 @@
             float4 color = tex2D(_MainTex, i.texcoord);
 
             float2 coord = i.texcoord * 2. - 1.;
-            coord *= 1.2;
 
             float distanceFromCenter = length(coord);
             return color * (1. - exp((distanceFromCenter - .99)));
@@ -209,8 +208,8 @@
         Pass // 0
         {
             CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment FragPrefilter13
+            #pragma vertex VertDefaultBlit
+            #pragma fragment FlareProjectionFragment
             ENDCG
         }
 
@@ -218,43 +217,11 @@
         {
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment FragDownsample13
-            ENDCG
-        }
-
-        Pass // 2
-        {
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment FragUpsampleTent
-            ENDCG
-        }
-
-        Pass // 3
-        {
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment FragAnamorphicBlooom
-            ENDCG
-        }
-
-        Pass // 4
-        {
-            CGPROGRAM
-            #pragma vertex VertDefaultBlit
-            #pragma fragment FlareProjectionFragment
-            ENDCG
-        }
-
-        Pass // 5
-        {
-            CGPROGRAM
-            #pragma vertex VertDefault
             #pragma fragment DebugDrawLineFragment
             ENDCG
         }
 
-        Pass // 6
+        Pass // 2
         {
             Blend Off
             CGPROGRAM
@@ -263,7 +230,7 @@
             ENDCG
         }
 
-        Pass // 7
+        Pass // 3
         {
             CGPROGRAM
             #pragma vertex VertDefault
@@ -271,7 +238,7 @@
             ENDCG
         }
 
-        Pass // 8
+        Pass // 4
         {
             CGPROGRAM
             #pragma vertex VertDefault
@@ -279,7 +246,7 @@
             ENDCG
         }
 
-        Pass // 9
+        Pass // 5
         {
             CGPROGRAM
             #pragma vertex VertDefault
@@ -287,7 +254,7 @@
             ENDCG
         }
 
-        Pass // 10
+        Pass // 6
         {
             Blend Off
             CGPROGRAM
@@ -296,7 +263,7 @@
             ENDCG
         }
 
-        Pass // 11
+        Pass // 7
         {
             Blend Off
             CGPROGRAM
@@ -305,7 +272,7 @@
             ENDCG
         }
 
-        Pass // 12
+        Pass // 8
         {
             Blend Off
             CGPROGRAM
@@ -314,7 +281,7 @@
             ENDCG
         }
 
-        Pass // 13
+        Pass // 9
         {
             CGPROGRAM
             #pragma vertex VertDefaultBlit
@@ -322,7 +289,7 @@
             ENDCG
         }
 
-        Pass // 14
+        Pass // 10
         {
             Blend Off
             CGPROGRAM
@@ -331,7 +298,7 @@
             ENDCG
         }
 
-        Pass // 15
+        Pass // 11
         {
             CGPROGRAM
             #pragma vertex VertDefault

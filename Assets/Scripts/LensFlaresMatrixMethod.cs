@@ -56,13 +56,14 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     enum FlareShaderPasses
     {
-        DrawApertureShape = 8,
-        GaussianBlur = 11,
-        CenterPowerSpectrum = 9,
-        DrawStarburst = 13,
-        DrawGhost = 4,
-        EdgeFade = 14,
-        ComposeOverlay = 15,
+        DrawApertureShape = 4,
+        GaussianBlur = 7,
+        CenterPowerSpectrum = 5,
+        DrawStarburst = 9,
+        DrawGhost = 0,
+        EdgeFade = 10,
+        ComposeOverlay = 11,
+        ScaleFFT = 8,
     }
 
     class Ghost
@@ -831,12 +832,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
 
         // Tone map the Fourier transform, as the values are likely much higher than 0..1
-        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, 12);
+        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.ScaleFFT);
 
         // Tone the edges down
         // TODO: find a non-hack way of computing the scale of the FFT
         // Perhaps send the full-scale FFT and scale in fragment shader?
-        Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, 14);
+        Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.EdgeFade);
 
         // Blur the aperture texture
         // But maybe get heavier blur rather than run the same blur many times
