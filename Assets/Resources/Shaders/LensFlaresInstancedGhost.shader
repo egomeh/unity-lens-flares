@@ -69,6 +69,7 @@
             return c.z * lerp(K.xxx, saturate(p - K.xxx), c.y);
         }
 
+        // TODO: Parts of this could be computed on CPU and shared between all ghosts
         float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
         {
             // Apply Snell's law to get the other angles

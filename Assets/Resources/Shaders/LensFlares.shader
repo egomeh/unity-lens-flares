@@ -35,43 +35,12 @@
 
         float _ApertureScale;
 
-        // polynomial smooth min
-        // from: http://www.iquilezles.org/www/articles/smin/smin.htm
-        float smin(float a, float b, float k)
-        {
-            float diff = b - a;
-            float h = saturate(0.5 + 0.5 * diff / k);
-            return b - h * (diff + k * (1.0f - h));
-        }
- 
-        float smax(float a, float b, float k)
-        {
-            float diff = a - b;
-            float h = saturate(0.5 + 0.5 * diff / k);
-            return b + h * (diff + k * (1.0f - h));
-        }
-
-        half4 PolygonShape(float2 coord)
-        {
-            float distance = 0.;
-            for (int i = 0; i < _ApertureEdges; ++i)
-            {
-                float angle = M_PI2 * (float)i / (float)_ApertureEdges;
-                float2 axis = float2(cos(angle), sin(angle));
-                // distance = smax(distance, dot(axis, coord), -log(1. - (_Smoothing + .0001)));
-                distance = smax(distance, dot(axis, coord), _Smoothing);
-            }
-
-            float circle = saturate(length(coord));
-
-            return lerp(distance, circle, _Smoothing);
-        }
-
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
             coord *= _ApertureScale;
-            float polygon = PolygonShape(coord);
+
+            float polygon = PolygonShape(coord, _ApertureEdges, _Smoothing);
 
             polygon = smoothstep(0., 1., pow(polygon + .2, 48.));
             polygon = saturate(1. - polygon);
@@ -85,42 +54,9 @@
             return d * _FlareColor;
         }
 
-        float4 DebugDrawLineFragment(VaryingsDefault i) : SV_Target
-        {
-            half4 sceneColor = tex2D(_MainTex, i.texcoord);
-
-            float aspect = _ScreenParams.x / _ScreenParams.y;
-
-            float2 coord = i.texcoord * 2. - 1.;
-            float2 w = normalize(float2(-_Axis.y, _Axis.x));
-            //w.x *= aspect;
-            float d = abs(dot(w, coord));
-            float l = saturate(1. - d);
-            l = smoothstep(0., 1., l - .5);
-            float overlay = step(.49, l) * _LineColor;
-
-            float distanceToLight = length((coord - _LightPositionIndicator.xy) * float2(aspect, 1.));
-            distanceToLight = step(.95, saturate(1. - distanceToLight));
-
-            return sceneColor + saturate(overlay) * _LineColor + distanceToLight * _LightPositionColor;
-        }
-
-        float4 ComposeFragment(VaryingsDefault i) : SV_Target
-        {
-            float4 sceneColor = tex2D(_MainTex, i.texcoord);
-            float4 flareColor = tex2D(_FlareTexture, i.texcoord);
-
-            return sceneColor + flareColor;
-        }
-
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
         {
             return tex2D(_FlareTexture, i.texcoord);
-        }
-
-        float4 ClearFragment(VaryingsDefault i) : SV_Target
-        {
-            return 0.;
         }
 
         float4 CenterFFTPowerSpectrum(VaryingsDefault i) : SV_Target
@@ -131,15 +67,6 @@
             float i1 = tex2D(_Imaginary, coord).r;
 
             return r1 * r1 + i1 * i1;
-        }
-
-        float4 ApertureSideBySide(VaryingsDefault i) : SV_Target
-        {
-            float2 scale = float2(2., 1.);
-            float fft = tex2D(_ApertureFTTexture, i.texcoord * scale).r;
-            float aperture = tex2D(_ApertureTexture, i.texcoord * scale - float2(1., 0.)).r;
-
-            return lerp(fft, aperture, step(.5, i.texcoord.x));
         }
 
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
@@ -217,36 +144,11 @@
         {
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment DebugDrawLineFragment
-            ENDCG
-        }
-
-        Pass // 2
-        {
-            Blend Off
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment ComposeFragment
-            ENDCG
-        }
-
-        Pass // 3
-        {
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment ClearFragment
-            ENDCG
-        }
-
-        Pass // 4
-        {
-            CGPROGRAM
-            #pragma vertex VertDefault
             #pragma fragment DrawApertureSDFFragment
             ENDCG
         }
 
-        Pass // 5
+        Pass // 2
         {
             CGPROGRAM
             #pragma vertex VertDefault
@@ -254,16 +156,7 @@
             ENDCG
         }
 
-        Pass // 6
-        {
-            Blend Off
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment ApertureSideBySide
-            ENDCG
-        }
-
-        Pass // 7
+        Pass // 3
         {
             Blend Off
             CGPROGRAM
@@ -272,7 +165,7 @@
             ENDCG
         }
 
-        Pass // 8
+        Pass // 4
         {
             Blend Off
             CGPROGRAM
@@ -281,7 +174,7 @@
             ENDCG
         }
 
-        Pass // 9
+        Pass // 5
         {
             CGPROGRAM
             #pragma vertex VertDefaultBlit
@@ -289,7 +182,7 @@
             ENDCG
         }
 
-        Pass // 10
+        Pass // 6
         {
             Blend Off
             CGPROGRAM
@@ -298,7 +191,7 @@
             ENDCG
         }
 
-        Pass // 11
+        Pass // 7
         {
             CGPROGRAM
             #pragma vertex VertDefault

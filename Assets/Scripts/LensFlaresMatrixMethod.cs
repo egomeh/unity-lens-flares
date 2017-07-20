@@ -56,14 +56,14 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
     enum FlareShaderPasses
     {
-        DrawApertureShape = 4,
-        GaussianBlur = 7,
-        CenterPowerSpectrum = 5,
-        DrawStarburst = 9,
         DrawGhost = 0,
-        EdgeFade = 10,
-        ComposeOverlay = 11,
-        ScaleFFT = 8,
+        DrawApertureShape = 1,
+        CenterPowerSpectrum = 2,
+        GaussianBlur = 3,
+        ScaleFourierTransform = 4,
+        DrawStarburst = 5,
+        EdgeFade = 6,
+        ComposeOverlay = 7,
     }
 
     class Ghost
@@ -747,7 +747,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
             m_apertureTexture = null;
         }
 
-        // TODO: Better naming for the temporary texture
         m_apertureTexture = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
         RenderTexture temporary = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
 
@@ -832,7 +831,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
 
         // Tone map the Fourier transform, as the values are likely much higher than 0..1
-        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.ScaleFFT);
+        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.ScaleFourierTransform);
 
         // Tone the edges down
         // TODO: find a non-hack way of computing the scale of the FFT
@@ -941,7 +940,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         // Axis in screen space that intersects the center of the screen and the light projected
         // in screen in NDC
-        Vector2 axis = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
+        Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
         axis.Normalize();
         axis.y *= -1f;
         axis.x *= _camera.aspect;

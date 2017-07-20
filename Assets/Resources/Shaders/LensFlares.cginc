@@ -49,13 +49,39 @@ VaryingsDefault VertDefaultBlit(AttributesDefault v)
     o.vertex = float4(v.vertex, 1.);
     o.vertex = mul(_FlareTransform, o.vertex);
 
-    // o.vertex.x *= _FlareOffsetAndScale.w;
-    // o.vertex.xy = o.vertex.xy * _FlareOffsetAndScale.z;
-    // o.vertex.xy += _FlareOffsetAndScale.xy;
-
     o.texcoord = v.uv;
 
     return o;
+}
+
+float smin(float a, float b, float k)
+{
+    float diff = b - a;
+    float h = saturate(0.5 + 0.5 * diff / k);
+    return b - h * (diff + k * (1.0f - h));
+}
+
+float smax(float a, float b, float k)
+{
+    float diff = a - b;
+    float h = saturate(0.5 + 0.5 * diff / k);
+    return b + h * (diff + k * (1.0f - h));
+}
+
+float PolygonShape(float2 coord, int edges, float smoothing)
+{
+    float distance = 0.;
+    for (int i = 0; i < edges; ++i)
+    {
+        float angle = M_PI2 * (float)i / (float)edges;
+        float2 axis = float2(cos(angle), sin(angle));
+
+        distance = smax(distance, dot(axis, coord), smoothing);
+    }
+
+    float circle = saturate(length(coord));
+
+    return lerp(distance, circle, smoothing);
 }
 
 float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
