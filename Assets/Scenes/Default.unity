@@ -616,11 +616,11 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 4.09
+  aperture: 4
   distanceToNextInterface: 10
-  aperatureEdges: 4
-  smoothing: 0.237
-  starburstBaseSize: 0.149
+  aperatureEdges: 5
+  smoothing: 0.167
+  starburstBaseSize: 0.194
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -637,9 +637,10 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  antiReflectiveCoatingWavelength: 620
+  antiReflectiveCoatingWavelength: 455
+  entrancePuppilDiameter: 15
   apertureFFTDebug: 0
-  preferInstanced: 0
+  preferInstanced: 1
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
@@ -703,8 +704,8 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_LocalRotation: {x: -0.11143721, y: 0.8758952, z: 0.40245643, w: 0.24169871}
-  m_LocalPosition: {x: -2.624, y: -2.433, z: 3.501}
+  m_LocalRotation: {x: -0.096652165, y: 0.88756716, z: 0.39443907, w: 0.21748756}
+  m_LocalPosition: {x: -2.536699, y: -2.8385835, z: 3.0423467}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
