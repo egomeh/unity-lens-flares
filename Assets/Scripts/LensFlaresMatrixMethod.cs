@@ -36,7 +36,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         // A signed distance field the represents the 
         public static readonly int _ApertureTexture = Shader.PropertyToID("_ApertureTexture");
-        public static readonly int _ApertureFTTexture = Shader.PropertyToID("_ApertureFTTexture");
         public static readonly int _FlareTexture = Shader.PropertyToID("_FlareTexture");
         public static readonly int _ApertureEdges = Shader.PropertyToID("_ApertureEdges");
         public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
@@ -44,8 +43,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _FlareColor = Shader.PropertyToID("_FlareColor");
 
         public static readonly int _ApertureScale = Shader.PropertyToID("_ApertureScale");
-
-        public static readonly int _TransmittanceResponse = Shader.PropertyToID("_TransmittanceResponse");
+        
         public static readonly int _AngleToLight = Shader.PropertyToID("_AngleToLight");
         public static readonly int _LightColor = Shader.PropertyToID("_LightColor");
         public static readonly int _LightWavelength = Shader.PropertyToID("_LightWavelength");
@@ -53,7 +51,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
 
         public static readonly int _GhostDataBuffer = Shader.PropertyToID("_GhostDataBuffer");
-        public static readonly int _GhostIndex = Shader.PropertyToID("_GhostIndex");
         public static readonly int _Aperture = Shader.PropertyToID("_Aperture");
     }
 
@@ -211,6 +208,8 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
     [Range(300f, 1000f)]
     public float antiReflectiveCoatingWavelength = 450;
 
+    public float entrancePuppilDiameter = 15f;
+
     public bool apertureFFTDebug = false;
     public bool preferInstanced = false;
 
@@ -363,20 +362,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         }
     }
 
-    Texture2D m_AngleTrasnmissionResponseTextrue;
-    Texture2D angleTransmissionResponseTexture
-    {
-        get
-        {
-            if (!m_AngleTrasnmissionResponseTextrue)
-            {
-                Prepare();
-            }
-
-            return m_AngleTrasnmissionResponseTextrue;
-        }
-    }
-
     LensSystem m_LensSystem;
     LensSystem lensSystem
     {
@@ -427,7 +412,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         GraphicsUtils.Destroy(m_Quad);
         GraphicsUtils.Destroy(m_apertureTexture);
         GraphicsUtils.Destroy(m_ApertureFourierTransform);
-        GraphicsUtils.Destroy(m_AngleTrasnmissionResponseTextrue);
 
         if (m_GhostDataBuffer != null)
         {
@@ -445,7 +429,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         m_Material = null;
         m_apertureTexture = null;
         m_ApertureFourierTransform = null;
-        m_AngleTrasnmissionResponseTextrue = null;
         m_FlareGhosts = null;
         m_LensSystem = null;
         m_CommandBuffer = null;
@@ -642,32 +625,22 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         // refract until the j th interface
         // reflect on j th interface
         // refract back to i th interface
+        // reflect again on the i th interface
+        // refract throughout the rest of the system to the sensor plane
 
-        // refract from i th interface to the aperture
-        // for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
-        for (int i = 0; i < interfaces.Length - 1; ++i)
+        // The index of the interface that corresponds to the aperture
+        int apertureIndex = interfacesBeforeAperature.Length;
+
+        // First pass is all even reflections form entrance to aperture
+        for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
         {
-
-            // Do not reflect on the aperture
-            if (i == interfacesBeforeAperature.Length)
+            for (int j = i + 1; j < apertureIndex; ++j)
             {
-                continue;
-            }
-
-            // for (int j = i + 1; j < interfacesBeforeAperature.Length; ++j)
-            for (int j = i + 1; j < interfaces.Length; ++j)
-            {
-
-                // Do not reflect on the aperture
-                if (j == interfacesBeforeAperature.Length)
-                {
-                    continue;
-                }
                 // Debug.Log("r -> " + j + " <- " + i);
 
                 Matrix4x4 entranceToAperture = T0;
 
-                // Refract on all interfaces up to j  th interface
+                // Refract on all interfaces up to j th interface
                 for (int k = 0; k < j; ++k)
                 {
                     entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
@@ -691,17 +664,74 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
                     entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
                 }
 
-                int aperatureIndex = interfacesBeforeAperature.Length;
-                Matrix4x4 aperatureToSensor = Translations[aperatureIndex] * Refractions[aperatureIndex];
+                Matrix4x4 aperatureToSensor = Translations[apertureIndex] * Refractions[apertureIndex];
 
                 for (int l = 0; l < interfacesAfterAperature.Length; ++l)
                 {
-                    int index = aperatureIndex + 1 + l;
+                    int index = apertureIndex + 1 + l;
                     aperatureToSensor = Translations[index] * Refractions[index] * aperatureToSensor;
                 }
 
-                float n1 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
-                float n2 = interfaces[i + 1].air ? kRefractiveIndexAir : interfaces[i + 1].refractiveIndex;
+                float n1 = 0f;
+
+                if (i == 0)
+                {
+                    n1 = kRefractiveIndexAir;
+                }
+                else
+                {
+                    n1 = interfaces[i - 1].air ? kRefractiveIndexAir : interfaces[i - 1].refractiveIndex;
+                }
+
+                float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
+
+                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+            }
+        }
+
+        // Second pass is all reflections that occur between aperture and sensor plane
+        for (int i = apertureIndex + 1; i < interfacesAfterAperature.Length - 1; ++i)
+        {
+            for (int j = i + 1; j < interfacesAfterAperature.Length; ++j)
+            {
+                // Debug.Log("r -> " + j + " <- " + i);
+
+                Matrix4x4 entranceToAperture = T0;
+
+                // Refract all the way to the aperture
+                for (int k = 0; k < interfacesBeforeAperature.Length; ++k)
+                {
+                    entranceToAperture = Translations[k] * Refractions[k] * entranceToAperture;
+                }
+
+                Matrix4x4 aperatureToSensor = Translations[apertureIndex] * Refractions[apertureIndex];
+
+                // Refract from aperture to j th interface
+                for (int k = apertureIndex + 1; k < j; ++k)
+                {
+                    aperatureToSensor = Translations[k] * Refractions[k] * aperatureToSensor;
+                }
+
+                // Reflect on the j th interface
+                aperatureToSensor = Reflections[j] * aperatureToSensor;
+
+                // refract in reverse order from the j th interface back to the i th interface
+                for (int k = j - 1; k > i; --k)
+                {
+                    aperatureToSensor =  RefractionsInverse[k] * Translations[k] * aperatureToSensor;
+                }
+
+                // reflect on the i th interface
+                aperatureToSensor = Translations[i] * ReflectionsInverse[i] * Translations[i] * aperatureToSensor;
+
+                // refract to the sensor plane
+                for (int k = i + 1; k < totalInterfaces; ++k)
+                {
+                    aperatureToSensor = Translations[k] * Refractions[k] * aperatureToSensor;
+                }
+
+                float n1 = interfaces[i - 1].air ? kRefractiveIndexAir : interfaces[i - 1].refractiveIndex;
+                float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
                 flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
@@ -793,14 +823,12 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         material.SetTexture("_Imaginary", fftTextures[3]);
         Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterPowerSpectrum);
 
-        for (int i = 0; i < 1; ++i)
-        {
-            material.EnableKeyword("BLUR_PASS_VERTICAL");
-            Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
+        // Blur the Fourier transform of the aperture slightly
+        material.EnableKeyword("BLUR_PASS_VERTICAL");
+        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
 
-            material.DisableKeyword("BLUR_PASS_VERTICAL");
-            Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
-        }
+        material.DisableKeyword("BLUR_PASS_VERTICAL");
+        Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
 
         // Tone map the Fourier transform, as the values are likely much higher than 0..1
         Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, 12);
@@ -812,7 +840,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
 
         // Blur the aperture texture
         // But maybe get heavier blur rather than run the same blur many times
-        for (int i = 0; i < 32; ++i)
+        for (int i = 0; i < 8; ++i)
         {
             material.EnableKeyword("BLUR_PASS_VERTICAL");
             Graphics.Blit(m_apertureTexture, temporary, material, (int)FlareShaderPasses.GaussianBlur);
@@ -829,104 +857,28 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         temporary.Release();
         temporary = null;
 
-        // *** step 6 ***
-
-        // Destroy the texture if an old exists
-        if (m_AngleTrasnmissionResponseTextrue)
-        {
-            GraphicsUtils.Destroy(m_AngleTrasnmissionResponseTextrue);
-            m_AngleTrasnmissionResponseTextrue = null;
-        }
-
-        // Create the texture
-        m_AngleTrasnmissionResponseTextrue = new Texture2D(64, 1)
-        {
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            name = "Angle-transmission response LUT",
-            anisoLevel = 1
-        };
-
-        Color[] pixels = new Color[64];
-
-        // Iterate over discrete angles between 0 and pi
-        for (int i = 0; i < 64; ++i)
-        {
-            float interpolation = i / 63f;
-            float angle = interpolation * Mathf.PI * .5f;
-
-            // Trance a ray at this angle though the system
-            // The height of the ray is zero, and does not matter, as we're only interested
-            // in the change of angle as the ray passes though the system.
-            Vector4 ray = new Vector4(angle, 0f, 0f, 0f);
-
-            // Initialize reflectance to 0
-            // Later to be accumulated over each interface
-            Color reflectance = new Color(1f, 1f, 1f);
-
-            previousRefractiveIndex = kRefractiveIndexAir;
-
-            // Run though each interface and compute the amount of reflected light for each interface
-            for (int interfaceIndex = 0; interfaceIndex < totalInterfaces; ++interfaceIndex)
-            {
-                // At the aperture, do not compute transmittance
-                if (interfaceIndex == interfacesBeforeAperature.Length)
-                {
-                    previousRefractiveIndex = kRefractiveIndexAir;
-                    continue;
-                }
-
-                ray.x = Mathf.Min(Mathf.Max(ray.x, -.2f), .2f);
-                angle = ray.x;
-
-                float refractiveIndex = interfaces[interfaceIndex].air ? kRefractiveIndexAir : interfaces[interfaceIndex].refractiveIndex;
-                float d = antiReflectiveCoatingWavelength / 4.0f / previousRefractiveIndex;
-
-                float r = Reflectance(kWavelengthRed, d, angle, previousRefractiveIndex, Mathf.Max(Mathf.Sqrt(previousRefractiveIndex * refractiveIndex), 1.38f), refractiveIndex);
-                float g = Reflectance(kWavelengthGreen, d, angle, previousRefractiveIndex, Mathf.Max(Mathf.Sqrt(previousRefractiveIndex * refractiveIndex), 1.38f), refractiveIndex);
-                float b = Reflectance(kWavelengthBlue, d, angle, previousRefractiveIndex, Mathf.Max(Mathf.Sqrt(previousRefractiveIndex * refractiveIndex), 1.38f), refractiveIndex);
-
-                reflectance -= new Color(r, g, b, 0f);
-
-                ray = Refractions[interfaceIndex] * ray;
-            }
-
-            // Transmittance = 1 - reflectance
-            // TODO: Is this correct?
-            Color transmittance = new Color(1f, 1f, 1f) - reflectance;
-
-            // Normalize the transmittance
-            float min = Mathf.Min(Mathf.Min(transmittance.r, transmittance.g), transmittance.b);
-            float max = Mathf.Max(Mathf.Max(transmittance.r, transmittance.g), transmittance.b);
-
-            transmittance.r = (transmittance.r - min) * 1f / (max - min);
-            transmittance.g = (transmittance.g - min) * 1f / (max - min);
-            transmittance.b = (transmittance.b - min) * 1f / (max - min);
-
-            pixels[i] = transmittance;
-        }
-
-        m_AngleTrasnmissionResponseTextrue.SetPixels(pixels);
-        m_AngleTrasnmissionResponseTextrue.Apply();
-
         if (m_GhostDataBuffer != null)
         {
             m_GhostDataBuffer.Dispose();
         }
 
-        // *** EXPERIMENTAL STEP *** Put all the needed data for the ghosts in a structured buffer
-        m_GhostDataBuffer = new ComputeBuffer(m_FlareGhosts.Count, Marshal.SizeOf(typeof(GhostGPUData)));
-
-        GhostGPUData[] ghostData = new GhostGPUData[m_FlareGhosts.Count];
-
-        for (int i = 0; i < flareGhosts.Count; ++i)
+        // If instancing is preferred and supported
+        // Put all the needed data for the ghosts in a structured buffer
+        if (preferInstanced && SystemInfo.supportsInstancing)
         {
-            ghostData[i].entranceToAperture = flareGhosts[i].ma;
-            ghostData[i].apertureToSensor = flareGhosts[i].ms;
-            ghostData[i].refractiveIncidences = new Vector4(flareGhosts[i].n1, flareGhosts[i].n2, 0f, 0f);
-        }
+            m_GhostDataBuffer = new ComputeBuffer(m_FlareGhosts.Count, Marshal.SizeOf(typeof(GhostGPUData)));
 
-        m_GhostDataBuffer.SetData(ghostData);
+            GhostGPUData[] ghostData = new GhostGPUData[m_FlareGhosts.Count];
+
+            for (int i = 0; i < flareGhosts.Count; ++i)
+            {
+                ghostData[i].entranceToAperture = flareGhosts[i].ma;
+                ghostData[i].apertureToSensor = flareGhosts[i].ms;
+                ghostData[i].refractiveIncidences = new Vector4(flareGhosts[i].n1, flareGhosts[i].n2, 0f, 0f);
+            }
+
+            m_GhostDataBuffer.SetData(ghostData);
+        }
     }
 
     void OnPreRender()
@@ -942,6 +894,27 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         // Make sure the command buffer is empty
         m_CommandBuffer.Clear();
 
+        // Check if the light is visible, if not, don't fill command buffer for the light
+        if (mainLight.type == LightType.Directional)
+        {
+            RaycastHit hit;
+
+            if (Physics.Raycast(_camera.transform.position, -mainLight.transform.forward, out hit, _camera.farClipPlane))
+            {
+                return;
+            }
+        }
+        else
+        {
+            RaycastHit hit;
+
+            Vector3 cameraToLight = mainLight.transform.position - _camera.transform.position;
+            if (Physics.Raycast(_camera.transform.position, cameraToLight, out hit, cameraToLight.magnitude))
+            {
+                return;
+            }
+        }
+
         // Get the angle to the light source
 
         // Light position in NDC
@@ -953,7 +926,7 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         if (mainLight.type == LightType.Point)
         {
             Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
-            angleToLight = Vector3.Angle(directionToLight, _camera.transform.forward);
+            angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
             
             lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(mainLight.transform.position);
         }
@@ -1099,7 +1072,6 @@ public class LensFlaresMatrixMethod  : MonoBehaviour
         m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, 1f);
         m_CommandBuffer.SetGlobalFloat(Uniforms._AngleToLight, angleToLight);
         m_CommandBuffer.SetGlobalVector(Uniforms._LightColor, mainLight.color);
-        m_CommandBuffer.SetGlobalTexture(Uniforms._TransmittanceResponse, angleTransmissionResponseTexture);
         m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, starburstTansform);
         m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureFourierTransform);
 
