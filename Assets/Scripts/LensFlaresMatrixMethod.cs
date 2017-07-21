@@ -51,7 +51,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
 
         public static readonly int _GhostDataBuffer = Shader.PropertyToID("_GhostDataBuffer");
-        public static readonly int _Aperture = Shader.PropertyToID("_Aperture");
+        public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
     }
 
     enum FlareShaderPasses
@@ -184,7 +184,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     public Lens[] interfacesBeforeAperature;
 
-    [Range(1f, 16f)]
+    [Range(1f, 32f)]
     public float aperture = 1f;
 
     public float distanceToNextInterface = 10f;
@@ -202,9 +202,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     [Range(300f, 1000f)]
     public float antiReflectiveCoatingWavelength = 450;
-
-    public float entrancePuppilDiameter = 15f;
-
+    
     public bool apertureFFTDebug = false;
     public bool preferInstanced = false;
 
@@ -411,7 +409,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     CommandBuffer m_CommandBuffer;
 
-    void Clean()
+    public void Clean()
     {
         GraphicsUtils.Destroy(m_Material);
         GraphicsUtils.Destroy(m_Quad);
@@ -450,7 +448,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         Clean();
     }
 
-    static float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
+    static float Reflectance(float wavelength, float coating, float angle, float n1, float n2, float n3)
     {
         // Apply Snell's law to get the other angles
         float angle2 = Mathf.Asin(n1 * Mathf.Asin(angle) / n2);
@@ -460,7 +458,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         float cos2 = Mathf.Cos(angle2);
         float cos3 = Mathf.Cos(angle3);
 
-        float beta = (2.0f * Mathf.PI) / wavelength * n2 * coatingThickness * cos2;
+        float beta = (2.0f * Mathf.PI) / wavelength * n2 * coating * cos2;
 
         // Compute the Fresnel terms for the first and second interfaces for both s and p polarized
         // light
@@ -580,7 +578,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             {
                 R[1, 1] = previousRefractiveIndex / refractiveIndex;
                 RInv[1, 1] = refractiveIndex / previousRefractiveIndex;
-
                 // L is identity for flat interfaces
             }
             else
@@ -615,7 +612,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             systemEntranceToAperture = Translations[i] * Refractions[i] * systemEntranceToAperture;
         }
 
-        for (int i = interfacesBeforeAperature.Length; i < totalInterfaces; ++i)
+        for (int i = interfacesBeforeAperature.Length + 1; i < totalInterfaces; ++i)
         {
             systemApertureToSensor = Translations[i] * Refractions[i] * systemApertureToSensor;
         }
@@ -628,11 +625,17 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // exactly twice
         m_FlareGhosts = new List<Ghost>();
 
-        // refract until the j th interface
-        // reflect on j th interface
-        // refract back to i th interface
-        // reflect again on the i th interface
-        // refract throughout the rest of the system to the sensor plane
+        // refract until the j th interface.
+        // reflect on j th interface.
+        // refract back to i th interface.
+        // reflect again on the i th interface.
+        // refract throughout the rest of the system to the sensor plane.
+
+
+        // Split in two passes.
+        // One is for reflections that occur before aperture.
+        // The other for reflections that occur after the aperture.
+        // Situations where a ray passes the aperture more than once are ignored.
 
         // The index of the interface that corresponds to the aperture
         int apertureIndex = interfacesBeforeAperature.Length;
@@ -920,6 +923,14 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             }
         }
 
+        const float k_FilmHeight = 24f;
+        const float k_SensorSize = 43.2f;
+
+        float fov = _camera.fieldOfView * Mathf.Deg2Rad;
+        float focalLenghth = .5f * k_FilmHeight / Mathf.Tan(.5f * fov);
+
+        float apertureHeight = focalLenghth / aperture;
+
         // Get the angle to the light source
 
         // Light position in NDC
@@ -947,8 +958,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // in screen in NDC
         Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
         axis.Normalize();
-        axis.y *= -1f;
-        axis.x *= _camera.aspect;
+        axis.y = -axis.y;
 
         angleToLight *= Mathf.Deg2Rad;
 
@@ -975,7 +985,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             // Set the axis on which the ghost should be drawn
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
-            m_CommandBuffer.SetGlobalFloat(Uniforms._Aperture, aperture);
+            m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
             m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
             m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
             m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
@@ -995,8 +1005,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             foreach (Ghost ghost in flareGhosts)
             {
                 // Aperture projected onto the entrance
-                float H_e1 = (1f / aperture - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
-                float H_e2 = (-1f / aperture - ghost.ma[0, 1] * angleToLight) / ghost.ma[0, 0];
+                float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+                float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
 
                 Matrix4x4 msma = ghost.ms * ghost.ma;
 
@@ -1005,9 +1015,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
 
                 // Project on to image circle
-                float sensorSize = 43.3f;
-                H_p1 /= sensorSize / 2f;
-                H_p2 /= sensorSize / 2f;
+                H_p1 /= k_SensorSize / 2f;
+                H_p2 /= k_SensorSize / 2f;
 
                 // Center: How far off of the optical axis the flare is
                 // Radius: The size of the quad
@@ -1016,26 +1025,24 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
                 // Transform given to the vertex shader to place the quad on screen.
                 Matrix4x4 flareTansform = Matrix4x4.Scale(new Vector3(radius, radius * _camera.aspect, 1f));
-                flareTansform = Matrix4x4.Translate(new Vector3(axis.x, axis.y * _camera.aspect, 0f) * center) * flareTansform;
+                flareTansform = Matrix4x4.Translate(new Vector3(axis.x, axis.y, 0f) * center) * flareTansform;
 
                 // entrancePupil = H_a / system.M_a[0][0];
                 // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
                 // Intensity /= Square(2 * Radius);
                 // TODO: Check that intensity makes sense
                 // TODO: Check that parameters are given correctly
-                float entrancePupil = 11.3f / lensSystem.entranceToAperture[0, 0];
-                float upper = Mathf.Pow(H_e1 - H_e2, 2f);
-                float lower = Mathf.Pow(2f * entrancePupil, 2f);
-                float intensity = upper / lower;
-                intensity = intensity / (Mathf.Pow(radius, 2f));
+                float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
+                float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
+                intensity = intensity / Mathf.Pow(2f * radius, 2f);
 
-                // intensity = intensity * (Mathf.PI - angleToLight);
-                //intensity = Mathf.Clamp01(intensity);
-                //intensity = .05f;
+                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
+                // intensity = Mathf.Clamp01(intensity);
+                // intensity = .05f;
 
-                // Angle to the light, but clipped to avoid extreme values
                 // This should be clipped to avoid the critical angle of the lens system.
-                float angle = Mathf.Max(Mathf.Min(.8f, angleToLight), .2f);
+                // TODO: Find tighter bound for clipping
+                float angle = Mathf.Min(.4f, angleToLight);
 
                 // TODO: Figure out what exactly this means.
                 float d = antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
@@ -1046,16 +1053,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-
-                // Convert the reflected color to HS
-                float h, s, v;
-                Color.RGBToHSV(flareColor * mainLight.color, out h, out s, out v);
-
-                // Set the intensity of the color
-                v = intensity;
-
-                // Convert back to RGB space
-                flareColor = Color.HSVToRGB(h, s, v, true);
+                flareColor *= intensity;
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, intensity);

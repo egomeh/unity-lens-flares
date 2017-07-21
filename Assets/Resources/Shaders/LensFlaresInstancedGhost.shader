@@ -14,7 +14,7 @@
 
         float _AngleToLight;
         float4 _Axis;
-        float _Aperture;
+        float _ApertureHeight;
         float4 _LightWavelength;
         float4 _LightColor;
 
@@ -34,7 +34,6 @@
             float4 vertex : SV_POSITION;
             float2 texcoord : TEXCOORD0;
             float3 color : COLOR0;
-            float4 debug : TEXCOORD1;
         };
 
         struct GhostData
@@ -70,7 +69,7 @@
         }
 
         // TODO: Parts of this could be computed on CPU and shared between all ghosts
-        float Reflectance(float wavelength, float coatingThickness, float angle, float n1, float n2, float n3)
+        float Reflectance(float wavelength, float coating, float angle, float n1, float n2, float n3)
         {
             // Apply Snell's law to get the other angles
             float angle2 = asin(n1 * asin(angle) / n2);
@@ -80,7 +79,7 @@
             float cos2 = cos(angle2);
             float cos3 = cos(angle3);
  
-            float beta = (2. * M_PI) / wavelength * n2 * coatingThickness * cos2;
+            float beta = (2. * M_PI) / wavelength * n2 * coating * cos2;
  
             // Compute the Fresnel terms for the first and second interfaces for both s and p polarized
             // light
@@ -125,27 +124,37 @@
             float4x4 ma = currentGhost.entranceToAperture;
             float4x4 ms = currentGhost.apertureToSensor;
 
-            float H_e1 = (1. / _Aperture - ma._m01 * _AngleToLight) / ma._m00;
-            float H_e2 = (-1. / _Aperture - ma._m01 * _AngleToLight) / ma._m00;
+            float H_e1 = (_ApertureHeight - ma._m01 * _AngleToLight) / ma._m00;
+            float H_e2 = (-_ApertureHeight - ma._m01 * _AngleToLight) / ma._m00;
 
             float4x4 msma = mul(ms, ma);
 
             float H_p1 = mul(msma, float4(H_e1, _AngleToLight, 0., 0.)).x;
             float H_p2 = mul(msma, float4(H_e2, _AngleToLight, 0., 0.)).x;
 
-            float sensorSize = 43.3;
+            float sensorSize = 43.2;
             H_p1 /= sensorSize / 2.;
             H_p2 /= sensorSize / 2.;
 
             float center = (H_p1 + H_p2) / 2.;
             float radius = abs(H_p1 - H_p2) / 2.;
 
+            float radius2 = radius * 2;
+            float effectiveEntrance = H_e1 - H_e2;
+
+            float entrancePupil = _ApertureHeight / _SystemEntranceToAperture._m00;
+            float entrancePupil2 = entrancePupil * 2.;
+
+            float intensity = (effectiveEntrance * effectiveEntrance) / (entrancePupil2 * entrancePupil2);
+            intensity = intensity / (radius2 * radius2);
+
+            intensity *= saturate(1. - _AngleToLight);
+
             float aspect = _ScreenParams.x / _ScreenParams.y;
 
             float2 scale = float2(radius, radius * aspect);
 
             float2 ghostOffset = _Axis.xy * center;
-            ghostOffset.y *= aspect;
 
             // TODO: These could be 3x3, but for now, map to C# 1:1
             matrix ghostScale =
@@ -178,29 +187,19 @@
             float n2 = currentGhost.refractiveIncidences.y;
 
             // TODO: Figure out what exactly this means.
-            float d = _LightWavelength.w / 4.0 / n1;
+            float coating = _LightWavelength.w / 4.0 / n1;
 
             // TODO: this is very likely to be wrong, sad!
             float angle = max(min(.4, _AngleToLight), .0);
 
             // TODO: Make the shader version of reflectance code vector based instead of 3 calls
             float3 reflectedRGB = 0.;
-            reflectedRGB.r = Reflectance(_LightWavelength.r, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
-            reflectedRGB.g = Reflectance(_LightWavelength.g, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
-            reflectedRGB.b = Reflectance(_LightWavelength.b, d, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
+            reflectedRGB.r = Reflectance(_LightWavelength.r, coating, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
+            reflectedRGB.g = Reflectance(_LightWavelength.g, coating, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
+            reflectedRGB.b = Reflectance(_LightWavelength.b, coating, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
+            reflectedRGB *= intensity;
 
-            // normalize the color in order to keep RGB -> HSV conversion stable
-            reflectedRGB = normalize(reflectedRGB);
-
-            float3 flareColor = reflectedRGB * _LightColor.rgb;
-
-            float3 hsv = RgbToHsv(flareColor);
-
-            o.debug = float4(hsv, 1.);
-
-            hsv.z = .05 * saturate((1. - _AngleToLight));
-
-            o.color = HsvToRgb(hsv) * step(.01, radius);
+            o.color = reflectedRGB;
 
             return o;
         }
