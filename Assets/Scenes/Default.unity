@@ -616,7 +616,7 @@ MonoBehaviour:
     radius: 28.34
     air: 1
     refractiveIndex: 0
-  aperture: 4
+  aperture: 26.1
   distanceToNextInterface: 10
   aperatureEdges: 5
   smoothing: 0.167
@@ -638,8 +638,6 @@ MonoBehaviour:
     air: 1
     refractiveIndex: 0
   antiReflectiveCoatingWavelength: 455
-  entrancePuppilDiameter: 15
-  apertureFFTDebug: 0
   preferInstanced: 1
 --- !u!81 &1764788230
 AudioListener:

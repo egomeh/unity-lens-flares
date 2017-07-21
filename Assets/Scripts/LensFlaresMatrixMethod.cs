@@ -202,8 +202,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     [Range(300f, 1000f)]
     public float antiReflectiveCoatingWavelength = 450;
-    
-    public bool apertureFFTDebug = false;
+
     public bool preferInstanced = false;
 
     Camera m_Camera;
