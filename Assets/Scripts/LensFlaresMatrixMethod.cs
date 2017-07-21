@@ -44,6 +44,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         public static readonly int _ApertureScale = Shader.PropertyToID("_ApertureScale");
 
+        public static readonly int _IntensityMultiplier = Shader.PropertyToID("_IntensityMultiplier");
         public static readonly int _AngleToLight = Shader.PropertyToID("_AngleToLight");
         public static readonly int _LightColor = Shader.PropertyToID("_LightColor");
         public static readonly int _LightWavelength = Shader.PropertyToID("_LightWavelength");
@@ -52,6 +53,16 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         public static readonly int _GhostDataBuffer = Shader.PropertyToID("_GhostDataBuffer");
         public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
+
+        public static readonly int _BlurDirection = Shader.PropertyToID("_BlurDirection");
+
+        // FFT related uniforms
+        public static readonly int _FFTRowPass = Shader.PropertyToID("_RowPass");
+        public static readonly int _FFTButterflyCount = Shader.PropertyToID("_ButterflyCount");
+        public static readonly int _TextureSourceR = Shader.PropertyToID("TextureSourceR");
+        public static readonly int _TextureSourceI = Shader.PropertyToID("TextureSourceI");
+        public static readonly int _TextureTargetR = Shader.PropertyToID("TextureTargetR");
+        public static readonly int _TextureTargetI = Shader.PropertyToID("TextureTargetI");
     }
 
     enum FlareShaderPasses
@@ -168,7 +179,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     // Resolution of the aperture and aperture transform is 1024x1024
     // TODO: Maybe a better resolution would be better?
-    const int kApertureResolution = 1024;
+    const int kApertureResolution = 512;
 
     const CameraEvent kEventHook = CameraEvent.AfterImageEffects;
 
@@ -204,6 +215,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     public float antiReflectiveCoatingWavelength = 450;
 
     public bool preferInstanced = false;
+
+    float m_OcclusionTime = 0f; 
 
     Camera m_Camera;
 
@@ -411,6 +424,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     public void Clean()
     {
         GraphicsUtils.Destroy(m_Material);
+        GraphicsUtils.Destroy(m_MaterialInstanced);
         GraphicsUtils.Destroy(m_Quad);
         GraphicsUtils.Destroy(m_apertureTexture);
         GraphicsUtils.Destroy(m_ApertureFourierTransform);
@@ -429,6 +443,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         m_Quad = null;
         m_Material = null;
+        m_MaterialInstanced = null;
         m_apertureTexture = null;
         m_ApertureFourierTransform = null;
         m_FlareGhosts = null;
@@ -809,21 +824,21 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
-        starburstShader.SetInt("_ButterflyCount", butterflyCount);
+        starburstShader.SetInt(Uniforms._FFTButterflyCount, butterflyCount);
 
         // starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
-        starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
+        starburstShader.SetTexture(kernel, Uniforms._TextureSourceR, fftTextures[4]);
 
-        starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[0]);
-        starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[1]);
-        starburstShader.SetInt("_RowPass", 1);
+        starburstShader.SetTexture(kernel, Uniforms._TextureTargetR, fftTextures[0]);
+        starburstShader.SetTexture(kernel, Uniforms._TextureTargetI, fftTextures[1]);
+        starburstShader.SetInt(Uniforms._FFTRowPass, 1);
         starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
 
-        starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[0]);
-        starburstShader.SetTexture(kernel, "TextureSourceI", fftTextures[1]);
-        starburstShader.SetTexture(kernel, "TextureTargetR", fftTextures[2]);
-        starburstShader.SetTexture(kernel, "TextureTargetI", fftTextures[3]);
-        starburstShader.SetInt("_RowPass", 0);
+        starburstShader.SetTexture(kernel, Uniforms._TextureSourceR, fftTextures[0]);
+        starburstShader.SetTexture(kernel, Uniforms._TextureSourceI, fftTextures[1]);
+        starburstShader.SetTexture(kernel, Uniforms._TextureTargetR, fftTextures[2]);
+        starburstShader.SetTexture(kernel, Uniforms._TextureTargetI, fftTextures[3]);
+        starburstShader.SetInt(Uniforms._FFTRowPass, 0);
         starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
 
         material.SetTexture("_Real", fftTextures[2]);
@@ -831,10 +846,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterPowerSpectrum);
 
         // Blur the Fourier transform of the aperture slightly
-        material.EnableKeyword("BLUR_PASS_VERTICAL");
+        material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
         Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
 
-        material.DisableKeyword("BLUR_PASS_VERTICAL");
+        material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
         Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
 
         // Tone map the Fourier transform, as the values are likely much higher than 0..1
@@ -849,10 +864,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // But maybe get heavier blur rather than run the same blur many times
         for (int i = 0; i < 8; ++i)
         {
-            material.EnableKeyword("BLUR_PASS_VERTICAL");
+            material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
             Graphics.Blit(m_apertureTexture, temporary, material, (int)FlareShaderPasses.GaussianBlur);
 
-            material.DisableKeyword("BLUR_PASS_VERTICAL");
+            material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
             Graphics.Blit(temporary, m_apertureTexture, material, (int)FlareShaderPasses.GaussianBlur);
         }
 
@@ -888,6 +903,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
+    [ExecuteInEditMode]
     void OnPreRender()
     {
         if (m_CommandBuffer == null)
@@ -901,26 +917,26 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Make sure the command buffer is empty
         m_CommandBuffer.Clear();
 
+        float occlusiontimeAddition = Time.deltaTime * .5f;
+
         // Check if the light is visible, if not, don't fill command buffer for the light
         if (mainLight.type == LightType.Directional)
         {
-            RaycastHit hit;
-
-            if (Physics.Raycast(_camera.transform.position, -mainLight.transform.forward, out hit, _camera.farClipPlane))
+            if (Physics.Raycast(_camera.transform.position, -mainLight.transform.forward, _camera.farClipPlane))
             {
-                return;
+                occlusiontimeAddition = -occlusiontimeAddition;
             }
         }
         else
         {
-            RaycastHit hit;
-
             Vector3 cameraToLight = mainLight.transform.position - _camera.transform.position;
-            if (Physics.Raycast(_camera.transform.position, cameraToLight, out hit, cameraToLight.magnitude))
+            if (Physics.Raycast(_camera.transform.position, cameraToLight, cameraToLight.magnitude))
             {
-                return;
+                occlusiontimeAddition = -occlusiontimeAddition;
             }
         }
+
+        m_OcclusionTime = Mathf.Clamp01(m_OcclusionTime + occlusiontimeAddition);
 
         const float k_FilmHeight = 24f;
         const float k_SensorSize = 43.2f;
@@ -983,12 +999,17 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             m_CommandBuffer.SetGlobalBuffer(Uniforms._GhostDataBuffer, ghostDataBuffer);
 
             // Set the axis on which the ghost should be drawn
-            m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
             m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
-            m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
-            m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
+            m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, m_OcclusionTime);
+
+            m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
             m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
+
             m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, mainLight.color);
+
+            m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
+
+            m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
 
             Matrix4x4[] matrices = new Matrix4x4[flareGhosts.Count];
             for (int i = 0; i < matrices.Length; ++i)
@@ -1035,7 +1056,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
                 intensity = intensity / Mathf.Pow(2f * radius, 2f);
 
-                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
+                intensity = intensity * Mathf.Clamp01(1f - angleToLight) * m_OcclusionTime;
                 // intensity = Mathf.Clamp01(intensity);
                 // intensity = .05f;
 
@@ -1077,6 +1098,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetGlobalVector(Uniforms._LightColor, mainLight.color);
         m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, starburstTansform);
         m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureFourierTransform);
+        m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, m_OcclusionTime);
 
         m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
 

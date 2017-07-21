@@ -19,7 +19,7 @@
 int _ButterflyCount;
 int _RowPass;
 
-#define Length 1024
+#define Length 512
 
 RWTexture2D<float4> Result;
 

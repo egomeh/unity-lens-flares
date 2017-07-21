@@ -6,6 +6,7 @@
         Blend One One
         CGINCLUDE
         #pragma multi_compile_instancing
+        #pragma target 3.5
         #include "UnityCG.cginc"
 
         #define M_PI 3.1415926535897932384626433832795
@@ -13,10 +14,12 @@
         #define EPSILON 1.0e-4
 
         float _AngleToLight;
-        float4 _Axis;
         float _ApertureHeight;
+        float _IntensityMultiplier;
+
         float4 _LightWavelength;
         float4 _LightColor;
+        float4 _Axis;
 
         float4x4 _SystemEntranceToAperture;
 
@@ -199,7 +202,7 @@
             reflectedRGB.b = Reflectance(_LightWavelength.b, coating, angle, n1, max(sqrt(n1 * n2), 1.38), n2);
             reflectedRGB *= intensity;
 
-            o.color = reflectedRGB;
+            o.color = reflectedRGB * _IntensityMultiplier;
 
             return o;
         }

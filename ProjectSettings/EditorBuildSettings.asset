@@ -7,7 +7,16 @@ EditorBuildSettings:
   m_Scenes:
   - enabled: 0
     path: Assets/Scenes/Preloader.unity
+    guid: 00000000000000000000000000000000
   - enabled: 0
     path: Assets/Scenes/UnityLabs01.unity
-  - enabled: 1
+    guid: 00000000000000000000000000000000
+  - enabled: 0
     path: Assets/Scenes/TheLabs.unity
+    guid: 00000000000000000000000000000000
+  - enabled: 0
+    path: Assets/Scenes/Test0-NoInstancing.unity
+    guid: 6674e10550f260a4a9066847f7483577
+  - enabled: 1
+    path: Assets/Scenes/Test2-PrepareCost.unity
+    guid: 5f49cd51471be7840ae6da4e0b1f1536

@@ -34,6 +34,9 @@
         float4 _LightPositionColor;
 
         float _ApertureScale;
+        float _IntensityMultiplier;
+
+        float2 _BlurDirection;
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
@@ -71,11 +74,7 @@
 
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
         {
-        #if defined(BLUR_PASS_VERTICAL)
-            float2 offset = float2(0., _MainTex_TexelSize.y);
-        #else
-            float2 offset = float2(_MainTex_TexelSize.x, 0.);
-        #endif
+            float2 offset = _MainTex_TexelSize.xy * _BlurDirection;
 
             float4 blurred = 0.;
 
@@ -118,7 +117,7 @@
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return max(0., float4(d1, d2, d3, d));
+            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier;
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
