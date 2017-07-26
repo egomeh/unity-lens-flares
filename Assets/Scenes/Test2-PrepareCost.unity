@@ -509,9 +509,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   starburstShader: {fileID: 7200000, guid: d7507f5ca181693478eaa56cca1a11a4, type: 3}
+  occlusionQueryShader: {fileID: 7200000, guid: 8b11a745e70a6db4f8aac29dec4638d2,
+    type: 3}
   mainLight: {fileID: 747664051}
   distanceToFirstInterface: 10
-  flareBufferDivision: 2
+  flareBufferDivision: 1
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -553,10 +555,10 @@ MonoBehaviour:
     radius: 44.33
     air: 1
     refractiveIndex: 1.6
-  aperture: 2.9
+  aperture: 1
   distanceToNextInterface: 10
   aperatureEdges: 5
-  smoothing: 0.16
+  smoothing: 0.354
   starburstBaseSize: 0.194
   interfacesAfterAperature:
   - distanceToNext: 3.85
@@ -575,7 +577,7 @@ MonoBehaviour:
     air: 1
     refractiveIndex: 0
   antiReflectiveCoatingWavelength: 598
-  preferInstanced: 1
+  preferInstanced: 0
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
@@ -640,7 +642,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
   m_LocalRotation: {x: -0.080964655, y: 0.89548045, z: 0.39795396, w: 0.18218757}
-  m_LocalPosition: {x: -2.536699, y: -2.8385835, z: 3.0423467}
+  m_LocalPosition: {x: -2.536699, y: -3.02, z: 3.0423467}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -652,7 +654,7 @@ MonoBehaviour:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ec55defdd71c8524793a8a591a8be946, type: 3}
   m_Name: 

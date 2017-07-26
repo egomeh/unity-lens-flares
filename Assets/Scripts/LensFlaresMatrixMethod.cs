@@ -186,6 +186,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     // Compute shader to compute the FFT of the aperture
     public ComputeShader starburstShader;
 
+    // Shader to check if pixels in the depth buffer exceed certain value
+    public ComputeShader occlusionQueryShader;
+
     public Light mainLight;
 
     public float distanceToFirstInterface = 1f;
@@ -450,6 +453,11 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_LensSystem = null;
         m_CommandBuffer = null;
         m_GhostDataBuffer = null;
+    }
+
+    void OnEnable()
+    {
+        _camera.depthTextureMode |= DepthTextureMode.Depth;
     }
 
     void OnDisable()
@@ -820,26 +828,26 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         Graphics.Blit(null, fftTextures[4], material, (int)FlareShaderPasses.DrawApertureShape);
 
-        int kernel = starburstShader.FindKernel("ButterflySLM");
+        int starburstKernel = starburstShader.FindKernel("ButterflySLM");
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
         starburstShader.SetInt(Uniforms._FFTButterflyCount, butterflyCount);
 
         // starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
-        starburstShader.SetTexture(kernel, Uniforms._TextureSourceR, fftTextures[4]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[4]);
 
-        starburstShader.SetTexture(kernel, Uniforms._TextureTargetR, fftTextures[0]);
-        starburstShader.SetTexture(kernel, Uniforms._TextureTargetI, fftTextures[1]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
         starburstShader.SetInt(Uniforms._FFTRowPass, 1);
-        starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
+        starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
-        starburstShader.SetTexture(kernel, Uniforms._TextureSourceR, fftTextures[0]);
-        starburstShader.SetTexture(kernel, Uniforms._TextureSourceI, fftTextures[1]);
-        starburstShader.SetTexture(kernel, Uniforms._TextureTargetR, fftTextures[2]);
-        starburstShader.SetTexture(kernel, Uniforms._TextureTargetI, fftTextures[3]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
         starburstShader.SetInt(Uniforms._FFTRowPass, 0);
-        starburstShader.Dispatch(kernel, 1, kApertureResolution, 1);
+        starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
         material.SetTexture("_Real", fftTextures[2]);
         material.SetTexture("_Imaginary", fftTextures[3]);
@@ -990,6 +998,40 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
+         // Resolve occlusion
+        int occlusionQueryKernel = occlusionQueryShader.FindKernel("Query");
+        int testTextureIdentifier = Shader.PropertyToID("_TestTarget");
+
+        RenderTextureDescriptor rds = new RenderTextureDescriptor(Screen.width, Screen.height, RenderTextureFormat.ARGBHalf, 0);
+        rds.enableRandomWrite = true;
+
+        m_CommandBuffer.GetTemporaryRT(testTextureIdentifier, rds, FilterMode.Bilinear);
+        m_CommandBuffer.SetRenderTarget(testTextureIdentifier);
+        m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
+
+        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_TestTarget", testTextureIdentifier);
+        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "DepthTextureDimensions", new Vector4(Screen.width, Screen.height, 0f, 0f));
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_OffsetCenter", new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f));
+        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, 1, 1, 1);
+
+        m_CommandBuffer.Blit(testTextureIdentifier, Uniforms._FlareCanvas);
+
+        m_CommandBuffer.ReleaseTemporaryRT(testTextureIdentifier);
+
+        m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
+
+        // this is to be removed
+        m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
+        m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
+
+        // End and release temporaries
+        m_CommandBuffer.ReleaseTemporaryRT(Uniforms._FlareCanvas);
+        m_CommandBuffer.EndSample("Lens Flares");
+        // until here
+        return;
+
+
         // Offer both instanced drawing as well as per-ghost draw call
         // But only take the instancing path if instancing is actually supported
         // TODO: Eventually, this branching should be fully automatic
@@ -1001,14 +1043,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             // Set the axis on which the ghost should be drawn
             m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
             m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, m_OcclusionTime);
-
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
             m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
-
             m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, mainLight.color);
-
             m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
-
             m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
 
             Matrix4x4[] matrices = new Matrix4x4[flareGhosts.Count];
@@ -1074,6 +1112,11 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor *= intensity;
+
+                if (flareColor.maxColorComponent < 1e-3)
+                {
+                    continue;
+                }
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, intensity);

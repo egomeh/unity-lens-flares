@@ -1,0 +1,40 @@
+﻿#pragma kernel Query
+
+float4 _OffsetCenter;
+float _DepthThreashold;
+
+Texture2D<float> _CameraDepthTexture : register(t0);
+SamplerState sampler_CameraDepthTexture;
+float4 DepthTextureDimensions;
+
+RWTexture2D<float4> _TestTarget : register(u0);
+
+groupshared uint gs_OcclusionBallot[2];
+
+[numthreads(32, 32, 1)]
+void Query(uint3 position : SV_DispatchThreadID)
+{
+    // This should be done nicer
+    gs_OcclusionBallot[0] = 0u;
+    gs_OcclusionBallot[1] = 0u;
+
+    GroupMemoryBarrierWithGroupSync();
+
+    float2 texcoordOffset = _OffsetCenter * .5 + .5;
+
+    uint2 lightPosition = position.xy + texcoordOffset * DepthTextureDimensions.xy;
+    lightPosition -= 16;
+
+    float2 texcoord = lightPosition / DepthTextureDimensions.xy;
+    float depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, texcoord, 0);
+
+    uint occluded = step(0.0001, depth);
+
+    InterlockedAdd(gs_OcclusionBallot[occluded], 1);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    float average = gs_OcclusionBallot[0] / 1024.;
+
+    _TestTarget[lightPosition] = float4(occluded, 1. - occluded, 0., 0.) * average;
+}
