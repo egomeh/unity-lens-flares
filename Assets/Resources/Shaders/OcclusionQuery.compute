@@ -36,7 +36,7 @@ void Query(uint dispatchThreadId : SV_DispatchThreadID, uint groupThreadId : SV_
     float depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, sampleOffset, 0);
     uint visible = step(depth, _DepthThreashold);
 
-    uint2 sampleOffsetPixel = sampleOffset.xy * _DepthTextureDimensions.xy;
+    uint2 sampleOffsetPixel = uint2(sampleOffset.xy * _DepthTextureDimensions.xy);
 
     _DebugTexture[sampleOffsetPixel] = float4(1. - visible, visible, 0., 1.);
 
