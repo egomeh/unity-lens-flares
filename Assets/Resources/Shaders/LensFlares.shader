@@ -10,6 +10,7 @@
         Blend One One
         CGINCLUDE
         #pragma multi_compile __ BLUR_PASS_VERTICAL
+        #pragma target 4.0
 
         #include "LensFlares.cginc"
 
@@ -21,6 +22,9 @@
         sampler2D _Imaginary;
 
         sampler2D _ApertureFFT;
+
+        StructuredBuffer<uint> _Visibility;
+        float _VisibilitySamples;
 
         sampler2D _TransmittanceResponse;
         float4 _LightColor;
@@ -53,8 +57,10 @@
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
+            float visibilityTerm = _Visibility[0] / _VisibilitySamples;
+
             float d = tex2D(_ApertureTexture, i.texcoord).r;
-            return d * _FlareColor;
+            return d * _FlareColor * visibilityTerm;
         }
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
@@ -102,6 +108,8 @@
 
         float4 StarburstFragment(VaryingsDefault i) : SV_Target
         {
+            float visibilityTerm = _Visibility[0] / _VisibilitySamples;
+
             float2 coord = i.texcoord * 2. - 1.;
 
             float2 coordRed = coord / _LightColor.r;
@@ -117,7 +125,7 @@
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier;
+            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier * visibilityTerm;
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
@@ -192,6 +200,7 @@
 
         Pass // 7
         {
+            Blend One One
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment ComposeOverlayFragment

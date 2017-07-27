@@ -422,6 +422,21 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
+    ComputeBuffer m_VisibilityBuffer;
+
+    ComputeBuffer visibilityBuffer
+    {
+        get
+        {
+            if (m_VisibilityBuffer == null)
+            {
+                m_VisibilityBuffer = new ComputeBuffer(1, sizeof(uint));
+            }
+
+            return m_VisibilityBuffer;
+        }
+    }
+
     CommandBuffer m_CommandBuffer;
 
     public void Clean()
@@ -960,14 +975,19 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         Vector3 lightPositionScreenSpace = Vector3.up;
 
         // The angle between the light direction and the camera forward direction
-        float angleToLight = 0f;
+        float angleToLight;
 
+        float lightDepth = 0f;
         if (mainLight.type == LightType.Point)
         {
             Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
             angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
 
             lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(mainLight.transform.position);
+
+            float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
+            float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
+            lightDepth = 1f - (a + b / directionToLight.magnitude);
         }
         else
         {
@@ -1000,36 +1020,43 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
          // Resolve occlusion
         int occlusionQueryKernel = occlusionQueryShader.FindKernel("Query");
-        int testTextureIdentifier = Shader.PropertyToID("_TestTarget");
+        int debugTexture = Shader.PropertyToID("_DebugTexture");
+        int visibilityTerm = Shader.PropertyToID("_Visibility");
+        int occlusionSamples = 64;
 
         RenderTextureDescriptor rds = new RenderTextureDescriptor(Screen.width, Screen.height, RenderTextureFormat.ARGBHalf, 0);
         rds.enableRandomWrite = true;
 
-        m_CommandBuffer.GetTemporaryRT(testTextureIdentifier, rds, FilterMode.Bilinear);
-        m_CommandBuffer.SetRenderTarget(testTextureIdentifier);
+        // Is there a better
+        visibilityBuffer.SetData(new uint[1] {0u});
+
+        m_CommandBuffer.GetTemporaryRT(debugTexture, rds, FilterMode.Bilinear);
+
+        m_CommandBuffer.SetRenderTarget(debugTexture);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
-        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_TestTarget", testTextureIdentifier);
+        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
+        m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
+
         m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "DepthTextureDimensions", new Vector4(Screen.width, Screen.height, 0f, 0f));
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_OffsetCenter", new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f));
-        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, 1, 1, 1);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", new Vector4(Screen.width, Screen.height, 0f, 0f));
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f));
+        m_CommandBuffer.SetComputeFloatParam(occlusionQueryShader, "_SampleRadius", .0005f);
 
-        m_CommandBuffer.Blit(testTextureIdentifier, Uniforms._FlareCanvas);
+        m_CommandBuffer.SetComputeFloatParam(occlusionQueryShader, "_DepthThreashold", lightDepth);
 
-        m_CommandBuffer.ReleaseTemporaryRT(testTextureIdentifier);
+        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples, 1, 1);
 
-        m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
+        m_CommandBuffer.Blit(debugTexture, Uniforms._FlareCanvas);
+
+        m_CommandBuffer.ReleaseTemporaryRT(debugTexture);
+
+        // m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
 
         // this is to be removed
         m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
         m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
-
-        // End and release temporaries
-        m_CommandBuffer.ReleaseTemporaryRT(Uniforms._FlareCanvas);
-        m_CommandBuffer.EndSample("Lens Flares");
-        // until here
-        return;
+        // Until here
 
 
         // Offer both instanced drawing as well as per-ghost draw call
@@ -1094,7 +1121,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
                 intensity = intensity / Mathf.Pow(2f * radius, 2f);
 
-                intensity = intensity * Mathf.Clamp01(1f - angleToLight) * m_OcclusionTime;
+                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
                 // intensity = Mathf.Clamp01(intensity);
                 // intensity = .05f;
 
@@ -1120,9 +1147,13 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, intensity);
+                m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
                 m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, flareTansform);
                 m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
                 m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
+
+                m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
+                m_CommandBuffer.SetGlobalBuffer("_Visibility", visibilityBuffer);
 
                 // Render quad with the aperture shape to the flare texture
                 m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
@@ -1137,11 +1168,15 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
 
         m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, 1f);
+
+        m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
+        m_CommandBuffer.SetGlobalBuffer("_Visibility", visibilityBuffer);
+
         m_CommandBuffer.SetGlobalFloat(Uniforms._AngleToLight, angleToLight);
         m_CommandBuffer.SetGlobalVector(Uniforms._LightColor, mainLight.color);
         m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, starburstTansform);
         m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureFourierTransform);
-        m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, m_OcclusionTime);
+        m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, 1f);
 
         m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
 
