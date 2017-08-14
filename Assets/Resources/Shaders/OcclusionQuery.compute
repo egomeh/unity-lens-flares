@@ -1,15 +1,17 @@
 ﻿#pragma kernel Query
 
+#include "UnityCG.cginc"
+
 static const float PI = 3.14159265f;
 
-float4 _LightPosition;
-float _DepthThreashold;
-float _SampleRadius;
-float _NumberOfSamples;
+CBUFFER_START(Params)
+    float4 _LightPosition; // x, y: light in 0-1 UV coordinates, z: light depth
+    float4 _SamplingParams; // x: depth threshold, y: sample radius, z: number of samples in each dimension
+    float4 _DepthTextureDimensions; // x: width, y: height, z: width / height
+CBUFFER_END
 
 Texture2D<float> _CameraDepthTexture : register(t0);
 SamplerState sampler_CameraDepthTexture;
-float4 _DepthTextureDimensions;
 
 RWStructuredBuffer<uint> _Visibility : register(u0);
 RWTexture2D<float4> _DebugTexture : register(u1);
@@ -19,26 +21,30 @@ float rand(float seed)
     return frac(sin(dot(seed, 12.9898)) * 43758.5453);
 }
 
-[numthreads(1, 1, 1)]
-void Query(uint dispatchThreadId : SV_DispatchThreadID, uint groupThreadId : SV_GroupThreadID)
+[numthreads(8, 8, 1)]
+void Query(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID)
 {
-    const uint threadID = dispatchThreadId;
+    const uint2 threadPosition = dispatchThreadId;
+
+    const float2 aspectCorrection = float2(1., _DepthTextureDimensions.z);
 
     float2 lightTexcoord = _LightPosition.xy * .5 + .5;
 
-    float sampleLength = sqrt(rand(threadID) * _SampleRadius);
-    float sampleAngle = rand(threadID * 7.) * 2. * PI;
+    uint2 lightTexturePosition = lightTexcoord * _DepthTextureDimensions.xy;
+    uint2 samplingPosition = lightTexturePosition + threadPosition - _SamplingParams.z / 2u;
 
-    float2 sampleOffset = float2(cos(sampleAngle), -sin(sampleAngle)) * sampleLength;
-    sampleOffset.x *= _DepthTextureDimensions.y / _DepthTextureDimensions.x;
-    sampleOffset += lightTexcoord;
+    float2 sampleTexcoord = float2(samplingPosition) / _DepthTextureDimensions.xy;
 
-    float depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, sampleOffset, 0);
-    uint visible = step(depth, _DepthThreashold);
+    uint inSampleDistance = step(length((sampleTexcoord - lightTexcoord) / aspectCorrection), _SamplingParams.y);
 
-    uint2 sampleOffsetPixel = uint2(sampleOffset.xy * _DepthTextureDimensions.xy);
+    float depth = _CameraDepthTexture[samplingPosition];
+    uint visible = step(depth, _LightPosition.z);
 
-    _DebugTexture[sampleOffsetPixel] = float4(1. - visible, visible, 0., 1.);
+    _DebugTexture[samplingPosition] = float4(1. - visible, visible, 0., 1.) * inSampleDistance;
 
-    InterlockedAdd(_Visibility[0u], visible);
+    // Write whether the pixel is visible
+    InterlockedAdd(_Visibility[0u], visible * inSampleDistance);
+
+    // Increment counter if the pixel is significant
+    InterlockedAdd(_Visibility[1u], inSampleDistance);
 }

@@ -47,7 +47,10 @@ VaryingsDefault VertDefaultBlit(AttributesDefault v)
     VaryingsDefault o;
 
     o.vertex = float4(v.vertex, 1.);
+
     o.vertex = mul(_FlareTransform, o.vertex);
+
+    o.vertex.y *= -_ProjectionParams.x;
 
     o.texcoord = v.uv;
 

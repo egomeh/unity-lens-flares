@@ -430,7 +430,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         {
             if (m_VisibilityBuffer == null)
             {
-                m_VisibilityBuffer = new ComputeBuffer(1, sizeof(uint));
+                m_VisibilityBuffer = new ComputeBuffer(2, sizeof(uint));
             }
 
             return m_VisibilityBuffer;
@@ -1022,30 +1022,32 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         int occlusionQueryKernel = occlusionQueryShader.FindKernel("Query");
         int debugTexture = Shader.PropertyToID("_DebugTexture");
         int visibilityTerm = Shader.PropertyToID("_Visibility");
-        int occlusionSamples = 64;
+        int occlusionSamples = 32;
 
         RenderTextureDescriptor rds = new RenderTextureDescriptor(Screen.width, Screen.height, RenderTextureFormat.ARGBHalf, 0);
         rds.enableRandomWrite = true;
 
-        // Is there a better
-        visibilityBuffer.SetData(new uint[1] {0u});
+        // Is there a better way to reset
+        visibilityBuffer.SetData(new uint[2] {0u, 0u});
 
         m_CommandBuffer.GetTemporaryRT(debugTexture, rds, FilterMode.Bilinear);
 
         m_CommandBuffer.SetRenderTarget(debugTexture);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
+        Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
+        Vector4 occlusionSamplingParams = new Vector4(lightDepth, .01f, occlusionSamples, 0f);
+        Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
+
         m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
         m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
 
         m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", new Vector4(Screen.width, Screen.height, 0f, 0f));
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, 0f, 0f));
-        m_CommandBuffer.SetComputeFloatParam(occlusionQueryShader, "_SampleRadius", .0005f);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
 
-        m_CommandBuffer.SetComputeFloatParam(occlusionQueryShader, "_DepthThreashold", lightDepth);
-
-        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples, 1, 1);
+        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
 
         m_CommandBuffer.Blit(debugTexture, Uniforms._FlareCanvas);
 

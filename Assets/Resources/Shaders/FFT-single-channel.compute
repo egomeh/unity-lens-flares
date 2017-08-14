@@ -69,7 +69,7 @@ void ButterflyPass(int passIndex, uint x, uint t0, uint t1, out float resultR, o
 }
 
 [numthreads(Length, 1, 1)]
-void ButterflySLM(uint3 position : SV_DispatchThreadID)
+void ButterflySLM(int3 position : SV_DispatchThreadID)
 {
     uint2 texturePos = uint2(position.xy);
 
@@ -105,6 +105,5 @@ void ButterflySLM(uint3 position : SV_DispatchThreadID)
     // Final butterfly will write directly to the target texture
     GroupMemoryBarrierWithGroupSync();
 
-    // The final pass writes to the output UAV texture
     ButterflyPass(_ButterflyCount - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos].x, TextureTargetI[texturePos].x);
 }

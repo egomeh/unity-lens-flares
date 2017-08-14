@@ -42,6 +42,14 @@
 
         float2 _BlurDirection;
 
+        float Visibility()
+        {
+            float visiblePixels = _Visibility[0];
+            float countingPixels = max(1., _Visibility[1]);
+
+            return visiblePixels / countingPixels;
+        }
+
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
@@ -57,10 +65,8 @@
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
-            float visibilityTerm = _Visibility[0] / _VisibilitySamples;
-
             float d = tex2D(_ApertureTexture, i.texcoord).r;
-            return d * _FlareColor * visibilityTerm;
+            return d * _FlareColor * Visibility();
         }
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
@@ -108,8 +114,6 @@
 
         float4 StarburstFragment(VaryingsDefault i) : SV_Target
         {
-            float visibilityTerm = _Visibility[0] / _VisibilitySamples;
-
             float2 coord = i.texcoord * 2. - 1.;
 
             float2 coordRed = coord / _LightColor.r;
@@ -125,7 +129,7 @@
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier * visibilityTerm;
+            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier * Visibility();
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
