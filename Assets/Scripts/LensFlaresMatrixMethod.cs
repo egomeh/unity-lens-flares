@@ -219,6 +219,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     public bool preferInstanced = false;
 
+    public float occlusionDiskSize = 0.01f;
+
     float m_OcclusionTime = 0f; 
 
     Camera m_Camera;
@@ -972,22 +974,31 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Get the angle to the light source
 
         // Light position in NDC
-        Vector3 lightPositionScreenSpace = Vector3.up;
+        Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
 
         // The angle between the light direction and the camera forward direction
         float angleToLight;
 
         float lightDepth = 0f;
+        float uvSampleRadius = 0f;
         if (mainLight.type == LightType.Point)
         {
             Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
             angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
 
-            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(mainLight.transform.position);
+            Vector3 lightPosition = new Vector4(mainLight.transform.position.x, mainLight.transform.position.y, mainLight.transform.position.z, 1f);
+
+            Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
+
+            lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
 
             float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
             float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
             lightDepth = 1f - (a + b / directionToLight.magnitude);
+
+            float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
+
+            uvSampleRadius = occlusionDiskSize / w;
         }
         else
         {
@@ -995,6 +1006,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             Vector3 distantPoint = _camera.transform.position + mainLight.transform.forward * _camera.farClipPlane;
             lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
+
+            uvSampleRadius = occlusionDiskSize * .1f;
         }
 
         // Axis in screen space that intersects the center of the screen and the light projected
@@ -1019,10 +1032,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
          // Resolve occlusion
-        int occlusionQueryKernel = occlusionQueryShader.FindKernel("Query");
+        int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
         int debugTexture = Shader.PropertyToID("_DebugTexture");
-        int visibilityTerm = Shader.PropertyToID("_Visibility");
-        int occlusionSamples = 32;
+        
+        float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
+
+        int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels)/Mathf.Log(2))));
 
         RenderTextureDescriptor rds = new RenderTextureDescriptor(Screen.width, Screen.height, RenderTextureFormat.ARGBHalf, 0);
         rds.enableRandomWrite = true;
@@ -1035,8 +1050,13 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetRenderTarget(debugTexture);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
+        // x, y: light in 0-1 UV coordinates, z: light depth
         Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
-        Vector4 occlusionSamplingParams = new Vector4(lightDepth, .01f, occlusionSamples, 0f);
+
+        // x: sample radius, y: number of samples in each dimension
+        Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, 0f, 0f);
+
+        // x: width, y: height, z: width / height
         Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
 
         m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);

@@ -1,4 +1,4 @@
-﻿#pragma kernel Query
+﻿#pragma kernel OcclusionQuery
 
 #include "UnityCG.cginc"
 
@@ -16,13 +16,8 @@ SamplerState sampler_CameraDepthTexture;
 RWStructuredBuffer<uint> _Visibility : register(u0);
 RWTexture2D<float4> _DebugTexture : register(u1);
 
-float rand(float seed)
-{
-    return frac(sin(dot(seed, 12.9898)) * 43758.5453);
-}
-
 [numthreads(8, 8, 1)]
-void Query(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID)
+void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID)
 {
     const uint2 threadPosition = dispatchThreadId;
 
@@ -31,20 +26,20 @@ void Query(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : S
     float2 lightTexcoord = _LightPosition.xy * .5 + .5;
 
     uint2 lightTexturePosition = lightTexcoord * _DepthTextureDimensions.xy;
-    uint2 samplingPosition = lightTexturePosition + threadPosition - _SamplingParams.z / 2u;
+    uint2 samplingPosition = lightTexturePosition + threadPosition - _SamplingParams.y / 2u;
 
     float2 sampleTexcoord = float2(samplingPosition) / _DepthTextureDimensions.xy;
 
-    uint inSampleDistance = step(length((sampleTexcoord - lightTexcoord) / aspectCorrection), _SamplingParams.y);
+    uint inSampleDisk = step(length((sampleTexcoord - lightTexcoord) / aspectCorrection), _SamplingParams.x);
 
     float depth = _CameraDepthTexture[samplingPosition];
     uint visible = step(depth, _LightPosition.z);
 
-    _DebugTexture[samplingPosition] = float4(1. - visible, visible, 0., 1.) * inSampleDistance;
+    _DebugTexture[samplingPosition] = lerp(float4(1. - visible, visible, 0., 1.), float4(0., 0., 1., 1.), 1. - inSampleDisk);
 
     // Write whether the pixel is visible
-    InterlockedAdd(_Visibility[0u], visible * inSampleDistance);
+    InterlockedAdd(_Visibility[0u], visible * inSampleDisk);
 
     // Increment counter if the pixel is significant
-    InterlockedAdd(_Visibility[1u], inSampleDistance);
+    InterlockedAdd(_Visibility[1u], inSampleDisk);
 }

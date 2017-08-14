@@ -587,6 +587,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   starburstShader: {fileID: 7200000, guid: d7507f5ca181693478eaa56cca1a11a4, type: 3}
+  occlusionQueryShader: {fileID: 7200000, guid: 8b11a745e70a6db4f8aac29dec4638d2,
+    type: 3}
   mainLight: {fileID: 747664051}
   distanceToFirstInterface: 10
   flareBufferDivision: 1
@@ -639,6 +641,7 @@ MonoBehaviour:
     refractiveIndex: 0
   antiReflectiveCoatingWavelength: 455
   preferInstanced: 1
+  occlusionDiskSize: 0.01
 --- !u!81 &1764788230
 AudioListener:
   m_ObjectHideFlags: 0
