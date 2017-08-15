@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -679,6 +680,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // The index of the interface that corresponds to the aperture
         int apertureIndex = interfacesBeforeAperature.Length;
 
+        List<Ghost> positiveSideOfAxis = new List<Ghost>();
+        List<Ghost> negativeSideOfAxis = new List<Ghost>();
+
         // First pass is all even reflections form entrance to aperture
         for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
         {
@@ -733,7 +737,14 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
                 float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
 
-                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+                if (entranceToAperture.m00 > 0f)
+                {
+                    positiveSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+                }
+                else
+                {
+                    negativeSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+                }
             }
         }
 
@@ -780,10 +791,25 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
                 float n1 = interfaces[i - 1].air ? kRefractiveIndexAir : interfaces[i - 1].refractiveIndex;
                 float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
-                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+
+                if (entranceToAperture.m00 > 0f)
+                {
+                    positiveSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+                }
+                else
+                {
+                    negativeSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
+                }
             }
         }
 
+        positiveSideOfAxis = positiveSideOfAxis.OrderBy(ghost => ghost.ma.m00).ToList();
+        negativeSideOfAxis = negativeSideOfAxis.OrderBy(ghost => ghost.ma.m00).ToList();
+        // Sot flares in the order the occur along the optical axis
+
+        flareGhosts.AddRange(positiveSideOfAxis);
+        flareGhosts.AddRange(negativeSideOfAxis);
+        
         // *** Step 4 ***
 
         // If the aperture texture is not yet released destroy it first
@@ -1169,7 +1195,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor *= intensity;
 
                 // If the ghost contributes less than a certain threshold, do not draw it
-                if (flareColor.maxColorComponent < 1e-3)
+                if (flareColor.maxColorComponent < 3e-3)
                 {
                     continue;
                 }
