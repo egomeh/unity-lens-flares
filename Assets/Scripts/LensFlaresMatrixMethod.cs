@@ -1010,6 +1010,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             uvSampleRadius = occlusionDiskSize * .1f;
         }
 
+        // If the camera is looking away from the light, do nothing
+        if (angleToLight > 90f)
+        {
+            return;
+        }
+
         // Axis in screen space that intersects the center of the screen and the light projected
         // in screen in NDC
         Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
@@ -1018,8 +1024,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         angleToLight *= Mathf.Deg2Rad;
 
-        int canvasWidth = Screen.width / flareBufferDivision;
-        int canvasHeight = Screen.height / flareBufferDivision;
+        int canvasWidth = Screen.width / (flareBufferDivision + 1);
+        int canvasHeight = Screen.height / (flareBufferDivision + 1);
 
         m_CommandBuffer.GetTemporaryRT(Uniforms._FlareCanvas, canvasWidth, canvasHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
 
@@ -1033,7 +1039,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
          // Resolve occlusion
         int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
-        int debugTexture = Shader.PropertyToID("_DebugTexture");
+        // int debugTexture = Shader.PropertyToID("_DebugTexture");
         
         float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
 
@@ -1045,10 +1051,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Is there a better way to reset
         visibilityBuffer.SetData(new uint[2] {0u, 0u});
 
-        m_CommandBuffer.GetTemporaryRT(debugTexture, rds, FilterMode.Bilinear);
+        //m_CommandBuffer.GetTemporaryRT(debugTexture, rds, FilterMode.Bilinear);
 
-        m_CommandBuffer.SetRenderTarget(debugTexture);
-        m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
+        //m_CommandBuffer.SetRenderTarget(debugTexture);
+        //m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
         // x, y: light in 0-1 UV coordinates, z: light depth
         Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
@@ -1059,7 +1065,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // x: width, y: height, z: width / height
         Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
 
-        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
+        // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
         m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
 
         m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
@@ -1069,15 +1075,15 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
 
-        m_CommandBuffer.Blit(debugTexture, Uniforms._FlareCanvas);
+        // m_CommandBuffer.Blit(debugTexture, Uniforms._FlareCanvas);
 
-        m_CommandBuffer.ReleaseTemporaryRT(debugTexture);
+        // m_CommandBuffer.ReleaseTemporaryRT(debugTexture);
 
         // m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
 
         // this is to be removed
-        m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
-        m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
+        // m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
+        // m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
         // Until here
 
 
@@ -1162,6 +1168,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor *= intensity;
 
+                // If the ghost contributes less than a certain threshold, do not draw it
                 if (flareColor.maxColorComponent < 1e-3)
                 {
                     continue;

@@ -184,7 +184,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 44113606}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.81, y: 0.02, z: 2.25}
+  m_LocalPosition: {x: 2.01, y: 0.02, z: 2.25}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -290,7 +290,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &728732024
 Transform:
   m_ObjectHideFlags: 0
@@ -759,7 +759,7 @@ MonoBehaviour:
     type: 3}
   mainLight: {fileID: 1751897766}
   distanceToFirstInterface: 10
-  flareBufferDivision: 1
+  flareBufferDivision: 2
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -801,7 +801,7 @@ MonoBehaviour:
     radius: 44.33
     air: 1
     refractiveIndex: 1.6
-  aperture: 4.1
+  aperture: 1.6
   distanceToNextInterface: 10
   aperatureEdges: 6
   smoothing: 0.149

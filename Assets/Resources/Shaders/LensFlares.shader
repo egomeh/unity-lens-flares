@@ -66,12 +66,12 @@
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
             float d = tex2D(_ApertureTexture, i.texcoord).r;
-            return d * _FlareColor * Visibility();
+            return d * _FlareColor;
         }
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
         {
-            return tex2D(_FlareTexture, i.texcoord);
+            return tex2D(_FlareTexture, i.texcoord) * Visibility();
         }
 
         float4 CenterFFTPowerSpectrum(VaryingsDefault i) : SV_Target
@@ -129,7 +129,7 @@
             float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier * Visibility();
+            return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier;
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target
