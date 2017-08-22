@@ -22,7 +22,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 else
                     UnityEngine.Object.DestroyImmediate(obj);
 #else
-                Destroy(obj);
+                UnityEngine.Object.Destroy(obj);
 #endif
             }
         }
@@ -64,6 +64,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _TextureSourceI = Shader.PropertyToID("TextureSourceI");
         public static readonly int _TextureTargetR = Shader.PropertyToID("TextureTargetR");
         public static readonly int _TextureTargetI = Shader.PropertyToID("TextureTargetI");
+        public static readonly int _Real = Shader.PropertyToID("_Real");
+        public static readonly int _Imaginary = Shader.PropertyToID("_Imaginary");
     }
 
     enum FlareShaderPasses
@@ -460,6 +462,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         {
             _camera.RemoveCommandBuffer(kEventHook, m_CommandBuffer);
             m_CommandBuffer.Dispose();
+            m_CommandBuffer = null;
         }
 
         m_Quad = null;
@@ -812,6 +815,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         
         // *** Step 4 ***
 
+        
         // If the aperture texture is not yet released destroy it first
         if (m_apertureTexture)
         {
@@ -876,10 +880,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
         starburstShader.SetInt(Uniforms._FFTButterflyCount, butterflyCount);
-
-        // starburstShader.SetTexture(kernel, "TextureSourceR", fftTextures[4]);
+        
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[4]);
-
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
         starburstShader.SetInt(Uniforms._FFTRowPass, 1);
@@ -889,11 +892,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
+
         starburstShader.SetInt(Uniforms._FFTRowPass, 0);
         starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
-        material.SetTexture("_Real", fftTextures[2]);
-        material.SetTexture("_Imaginary", fftTextures[3]);
+        material.SetTexture(Uniforms._Real, fftTextures[2]);
+        material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
         Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterPowerSpectrum);
 
         // Blur the Fourier transform of the aperture slightly
@@ -925,6 +929,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         for (int i = 0; i < fftTextureCount; ++i)
         {
             fftTextures[i].Release();
+            fftTextures[i] = null;
         }
 
         temporary.Release();
@@ -933,6 +938,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         if (m_GhostDataBuffer != null)
         {
             m_GhostDataBuffer.Dispose();
+            m_GhostDataBuffer = null;
         }
 
         // If instancing is preferred and supported

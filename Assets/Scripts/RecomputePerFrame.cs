@@ -15,8 +15,10 @@ public class RecomputePerFrame : MonoBehaviour
 
     public void Update()
     {
-        m_FlareComponent.aperatureEdges = 5 + Time.renderedFrameCount % 2;
-        m_FlareComponent.Clean();
+        if (Input.GetKey(KeyCode.Joystick1Button0))
+        {
+            m_FlareComponent.aperatureEdges = 5 + Time.renderedFrameCount % 2;
+            m_FlareComponent.Clean();
+        }
     }
-
 }
