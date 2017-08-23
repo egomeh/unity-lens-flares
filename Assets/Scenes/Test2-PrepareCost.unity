@@ -802,9 +802,9 @@ MonoBehaviour:
     refractiveIndex: 1.6
   aperture: 1
   distanceToNextInterface: 10
-  aperatureEdges: 6
+  aperatureEdges: 5
   smoothing: 0
-  starburstBaseSize: 0.239
+  starburstBaseSize: 0.179
   interfacesAfterAperature:
   - distanceToNext: 3.85
     flat: 1
@@ -887,13 +887,13 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_LocalRotation: {x: 0.034385104, y: -0.14567089, z: 0.005086917, w: 0.9887223}
+  m_LocalRotation: {x: -0.034268778, y: 0.16692673, z: -0.0058230166, w: -0.98535645}
   m_LocalPosition: {x: 5.375312, y: 0.3927186, z: -2.635693}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
+  m_LocalEulerAnglesHint: {x: 3.9840002, y: 340.77, z: 0.002}
 --- !u!114 &1764788235
 MonoBehaviour:
   m_ObjectHideFlags: 0

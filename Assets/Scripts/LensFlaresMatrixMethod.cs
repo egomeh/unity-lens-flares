@@ -863,19 +863,13 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             fftTextures[i].Create();
         }
 
-        material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
-        material.SetFloat(Uniforms._Smoothing, smoothing);
-        material.SetFloat(Uniforms._ApertureScale, 2f);
-
-        Graphics.Blit(null, fftTextures[4], material, (int)FlareShaderPasses.DrawApertureShape);
-
         int starburstKernel = starburstShader.FindKernel("ButterflySLM");
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
         starburstShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 1, 0, 0});
         
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[4]);
+        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);

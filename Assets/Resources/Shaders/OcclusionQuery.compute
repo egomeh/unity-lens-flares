@@ -14,7 +14,6 @@ Texture2D<float> _CameraDepthTexture : register(t0);
 SamplerState sampler_CameraDepthTexture;
 
 RWStructuredBuffer<uint> _Visibility : register(u0);
-// RWTexture2D<float4> _DebugTexture : register(u1);
 
 [numthreads(8, 8, 1)]
 void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID)
@@ -34,8 +33,6 @@ void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThr
 
     float depth = _CameraDepthTexture[samplingPosition];
     uint visible = step(depth, _LightPosition.z);
-
-    // _DebugTexture[samplingPosition] = lerp(float4(1. - visible, visible, 0., 1.), float4(0., 0., 1., 1.), 1. - inSampleDisk);
 
     // Write whether the pixel is visible
     InterlockedAdd(_Visibility[0u], visible * inSampleDisk);
