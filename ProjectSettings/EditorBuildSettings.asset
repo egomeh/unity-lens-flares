@@ -23,3 +23,6 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Scenes/Empty.unity
     guid: 07defc1b837231d4ca9e185810d1af62
+  - enabled: 0
+    path: Assets/Scenes/TestSingleFeature.unity
+    guid: eb967ce8b8b8c7a41954e1fdb4b419cd

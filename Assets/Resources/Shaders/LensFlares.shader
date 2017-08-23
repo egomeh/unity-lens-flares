@@ -7,7 +7,7 @@
     SubShader
     {
         Cull Off ZWrite Off ZTest Always
-        Blend One One
+        Blend Off
         CGINCLUDE
         #pragma multi_compile __ BLUR_PASS_VERTICAL
         #pragma target 4.0
@@ -74,16 +74,6 @@
             return tex2D(_FlareTexture, i.texcoord) * Visibility();
         }
 
-        float4 CenterFFTPowerSpectrum(VaryingsDefault i) : SV_Target
-        {
-            float2 coord = frac(i.texcoord + float2(.5, .5));
-
-            float r1 = tex2D(_Real, coord).r;
-            float i1 = tex2D(_Imaginary, coord).r;
-
-            return r1 * r1 + i1 * i1;
-        }
-
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
         {
             float2 offset = _MainTex_TexelSize.xy * _BlurDirection;
@@ -105,11 +95,6 @@
             blurred += tex2D(_MainTex, i.texcoord) * 0.126063;
 
             return blurred;
-        }
-
-        float4 ToneMapFragment(VaryingsDefault i) : SV_Target
-        {
-            return tex2D(_MainTex, i.texcoord).r * 1e-4;
         }
 
         float4 StarburstFragment(VaryingsDefault i) : SV_Target
@@ -141,10 +126,32 @@
             float distanceFromCenter = length(coord);
             return color * (1. - exp((distanceFromCenter - .99)));
         }
+
+        float4 CenterScaleFadePowerSpectrumFragment(VaryingsDefault i) : SV_Target
+        {
+            // Center the power spectrum value
+            float2 coord = frac(i.texcoord + float2(.5, .5));
+
+            float r1 = tex2D(_Real, coord).r;
+            float i1 = tex2D(_Imaginary, coord).r;
+
+            float powerSpectrumIntensity = r1 * r1 + i1 * i1;
+
+            // Scale down the power spectrum
+            powerSpectrumIntensity *= 1e-4;
+
+            // Fade out the edges
+            coord = i.texcoord * 2. - 1.;
+
+            float fadeFactor = (1. - exp((length(coord) - .99)));
+
+            return powerSpectrumIntensity * fadeFactor;
+        }
         ENDCG
 
         Pass // 0
         {
+            Blend One One
             CGPROGRAM
             #pragma vertex VertDefaultBlit
             #pragma fragment FlareProjectionFragment
@@ -163,46 +170,28 @@
         {
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment CenterFFTPowerSpectrum
+            #pragma fragment GaussianBlurFragment5tap
             ENDCG
         }
 
         Pass // 3
         {
-            Blend Off
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment GaussianBlurFragment5tap
-            ENDCG
-        }
-
-        Pass // 4
-        {
-            Blend Off
-            CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment ToneMapFragment
-            ENDCG
-        }
-
-        Pass // 5
-        {
+            Blend One One
             CGPROGRAM
             #pragma vertex VertDefaultBlit
             #pragma fragment StarburstFragment
             ENDCG
         }
 
-        Pass // 6
+        Pass // 4
         {
-            Blend Off
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment EdgeFadeFragment
+            #pragma fragment CenterScaleFadePowerSpectrumFragment
             ENDCG
         }
 
-        Pass // 7
+        Pass // 5
         {
             Blend One One
             CGPROGRAM

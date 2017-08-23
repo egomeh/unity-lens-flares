@@ -58,8 +58,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _BlurDirection = Shader.PropertyToID("_BlurDirection");
 
         // FFT related uniforms
-        public static readonly int _FFTRowPass = Shader.PropertyToID("_RowPass");
-        public static readonly int _FFTButterflyCount = Shader.PropertyToID("_ButterflyCount");
+        public static readonly int _PassParameters = Shader.PropertyToID("_PassParameters");
         public static readonly int _TextureSourceR = Shader.PropertyToID("TextureSourceR");
         public static readonly int _TextureSourceI = Shader.PropertyToID("TextureSourceI");
         public static readonly int _TextureTargetR = Shader.PropertyToID("TextureTargetR");
@@ -72,12 +71,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     {
         DrawGhost = 0,
         DrawApertureShape = 1,
-        CenterPowerSpectrum = 2,
-        GaussianBlur = 3,
-        ScaleFourierTransform = 4,
-        DrawStarburst = 5,
-        EdgeFade = 6,
-        ComposeOverlay = 7,
+        GaussianBlur = 2,
+        DrawStarburst = 3,
+        CenterScaleFade = 4,
+        ComposeOverlay = 5,
     }
 
     class Ghost
@@ -182,7 +179,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     // Resolution of the aperture and aperture transform is 1024x1024
     // TODO: Maybe a better resolution would be better?
-    const int kApertureResolution = 512;
+    const int kApertureResolution = 256;
 
     const CameraEvent kEventHook = CameraEvent.AfterImageEffects;
 
@@ -313,7 +310,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     }
 
     Mesh m_Quad;
-
     Mesh quad
     {
         get
@@ -350,18 +346,17 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    RenderTexture m_apertureTexture;
-
+    RenderTexture m_ApertureTexture;
     RenderTexture apertureTexture
     {
         get
         {
-            if (!m_apertureTexture)
+            if (!m_ApertureTexture)
             {
                 Prepare();
             }
 
-            return m_apertureTexture;
+            return m_ApertureTexture;
         }
     }
 
@@ -449,7 +444,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         GraphicsUtils.Destroy(m_Material);
         GraphicsUtils.Destroy(m_MaterialInstanced);
         GraphicsUtils.Destroy(m_Quad);
-        GraphicsUtils.Destroy(m_apertureTexture);
+        GraphicsUtils.Destroy(m_ApertureTexture);
         GraphicsUtils.Destroy(m_ApertureFourierTransform);
 
         if (m_GhostDataBuffer != null)
@@ -468,7 +463,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_Quad = null;
         m_Material = null;
         m_MaterialInstanced = null;
-        m_apertureTexture = null;
+        m_ApertureTexture = null;
         m_ApertureFourierTransform = null;
         m_FlareGhosts = null;
         m_LensSystem = null;
@@ -526,7 +521,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         return (rs + rp) * .5f;
     }
 
-    void Prepare()
+    public void Prepare()
     {
         // Precomputed steps are:
         // step 1: Define transforms for the light passing though the lens system
@@ -815,30 +810,29 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         
         // *** Step 4 ***
 
-        
         // If the aperture texture is not yet released destroy it first
-        if (m_apertureTexture)
+        if (m_ApertureTexture)
         {
-            m_apertureTexture.Release();
-            GraphicsUtils.Destroy(m_apertureTexture);
-            m_apertureTexture = null;
+            m_ApertureTexture.Release();
+            GraphicsUtils.Destroy(m_ApertureTexture);
+            m_ApertureTexture = null;
         }
 
-        m_apertureTexture = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
+        m_ApertureTexture = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
         RenderTexture temporary = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
 
-        m_apertureTexture.filterMode = FilterMode.Bilinear;
+        m_ApertureTexture.filterMode = FilterMode.Bilinear;
         temporary.filterMode = FilterMode.Bilinear;
 
         temporary.Create();
-        m_apertureTexture.Create();
+        m_ApertureTexture.Create();
 
         // Draw the aperture shape as a signed distance field
         material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
         material.SetFloat(Uniforms._Smoothing, smoothing);
         material.SetFloat(Uniforms._ApertureScale, 1f);
 
-        Graphics.Blit(null, m_apertureTexture, material, (int)FlareShaderPasses.DrawApertureShape);
+        Graphics.Blit(null, m_ApertureTexture, material, (int)FlareShaderPasses.DrawApertureShape);
 
         // *** Step 5 ***
 
@@ -879,13 +873,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
-        starburstShader.SetInt(Uniforms._FFTButterflyCount, butterflyCount);
+        starburstShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 1, 0, 0});
         
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[4]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
-        starburstShader.SetInt(Uniforms._FFTRowPass, 1);
         starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
@@ -893,38 +886,27 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
 
-        starburstShader.SetInt(Uniforms._FFTRowPass, 0);
+        starburstShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
         starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
         material.SetTexture(Uniforms._Real, fftTextures[2]);
         material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
-        Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterPowerSpectrum);
+        Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterScaleFade);
 
-        // Blur the Fourier transform of the aperture slightly
+         // Blur the Fourier transform of the aperture slightly
         material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
         Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
 
         material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
         Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
 
-        // Tone map the Fourier transform, as the values are likely much higher than 0..1
-        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.ScaleFourierTransform);
-
-        // Tone the edges down
-        // TODO: find a non-hack way of computing the scale of the FFT
-        // Perhaps send the full-scale FFT and scale in fragment shader?
-        Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.EdgeFade);
-
         // Blur the aperture texture
         // But maybe get heavier blur rather than run the same blur many times
-        for (int i = 0; i < 8; ++i)
-        {
-            material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
-            Graphics.Blit(m_apertureTexture, temporary, material, (int)FlareShaderPasses.GaussianBlur);
+        material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
+        Graphics.Blit(m_ApertureTexture, temporary, material, (int)FlareShaderPasses.GaussianBlur);
 
-            material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
-            Graphics.Blit(temporary, m_apertureTexture, material, (int)FlareShaderPasses.GaussianBlur);
-        }
+        material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
+        Graphics.Blit(temporary, m_ApertureTexture, material, (int)FlareShaderPasses.GaussianBlur);
 
         for (int i = 0; i < fftTextureCount; ++i)
         {

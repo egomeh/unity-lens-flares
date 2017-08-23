@@ -15,11 +15,14 @@
 //--------------------------------------------------------------------------------------
 
 #pragma kernel ButterflySLM
-
-int _ButterflyCount;
-int _RowPass;
-
 #define Length 512
+
+#include "UnityCG.cginc"
+
+CBUFFER_START(Params)
+// x: Butterfly count, y: Row pass (1 for row pass, 0 for column pass)
+int4 _PassParameters;
+CBUFFER_END
 
 RWTexture2D<float4> Result;
 
@@ -47,7 +50,7 @@ void GetButterflyValues(uint passIndex, uint x, out uint2 indices, out float2 we
 
     if (passIndex == 0)
     {
-        indices = reversebits(indices) >> (32 - _ButterflyCount) & (Length - 1);
+        indices = reversebits(indices) >> (32 - _PassParameters.x) & (Length - 1);
     }
 }
 
@@ -73,7 +76,7 @@ void ButterflySLM(int3 position : SV_DispatchThreadID)
 {
     uint2 texturePos = uint2(position.xy);
 
-    if (_RowPass == 1)
+    if (_PassParameters.y == 1)
     {
         texturePos = uint2(position.xy);
     }
@@ -85,7 +88,7 @@ void ButterflySLM(int3 position : SV_DispatchThreadID)
     // Load entire row or column into scratch array
     pingPongArray[0][position.x].x = TextureSourceR[texturePos].x;
 
-    if (_RowPass == 1)
+    if (_PassParameters.y == 1)
     {
         pingPongArray[1][position.x].x = 0;
     }
@@ -95,7 +98,7 @@ void ButterflySLM(int3 position : SV_DispatchThreadID)
     }
 
     uint4 textureIndices = uint4(0, 1, 2, 3);
-    for (int i = 0; i < _ButterflyCount - 1; i++)
+    for (int i = 0; i < _PassParameters.x - 1; i++)
     {
         GroupMemoryBarrierWithGroupSync();
         ButterflyPass(i, position.x, textureIndices.x, textureIndices.y, pingPongArray[textureIndices.z][position.x].x, pingPongArray[textureIndices.w][position.x].x);
@@ -105,5 +108,5 @@ void ButterflySLM(int3 position : SV_DispatchThreadID)
     // Final butterfly will write directly to the target texture
     GroupMemoryBarrierWithGroupSync();
 
-    ButterflyPass(_ButterflyCount - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos].x, TextureTargetI[texturePos].x);
+    ButterflyPass(_PassParameters.x - 1, position.x, textureIndices.x, textureIndices.y, TextureTargetR[texturePos].x, TextureTargetI[texturePos].x);
 }
