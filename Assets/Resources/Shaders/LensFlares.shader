@@ -10,12 +10,12 @@
         Blend Off
         CGINCLUDE
         #pragma multi_compile __ BLUR_PASS_VERTICAL
-        #pragma target 4.0
+        #pragma target 3.0
 
         #include "LensFlares.cginc"
 
         sampler2D _ApertureTexture;
-        sampler2D _ApertureFTTexture;
+        sampler2D _ApertureFFTTexture;
         sampler2D _FlareTexture;
 
         sampler2D _Real;
@@ -23,7 +23,7 @@
 
         sampler2D _ApertureFFT;
 
-        StructuredBuffer<uint> _Visibility;
+        StructuredBuffer<uint> _VisibilityBuffer;
         float _VisibilitySamples;
 
         sampler2D _TransmittanceResponse;
@@ -44,8 +44,8 @@
 
         float Visibility()
         {
-            float visiblePixels = _Visibility[0];
-            float countingPixels = max(1., _Visibility[1]);
+            float visiblePixels = _VisibilityBuffer[0];
+            float countingPixels = max(1., _VisibilityBuffer[1]);
 
             return visiblePixels / countingPixels;
         }
@@ -53,7 +53,6 @@
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
-            coord *= _ApertureScale;
 
             float polygon = PolygonShape(coord, _ApertureEdges, _Smoothing);
 
@@ -71,7 +70,7 @@
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
         {
-            return tex2D(_FlareTexture, i.texcoord) * Visibility();
+            return tex2D(_MainTex, i.texcoord) * Visibility();
         }
 
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
@@ -109,9 +108,9 @@
             float2 texcoordGreen = coordGreen  * .5 + .5;
             float2 texcoordBlue = coordBlue * .5 + .5;
 
-            float d1 = tex2D(_ApertureTexture, texcoordRed).r;
-            float d2 = tex2D(_ApertureTexture, texcoordGreen).r;
-            float d3 = tex2D(_ApertureTexture, texcoordBlue).r;
+            float d1 = tex2D(_ApertureFFTTexture, texcoordRed).r;
+            float d2 = tex2D(_ApertureFFTTexture, texcoordGreen).r;
+            float d3 = tex2D(_ApertureFFTTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
             return max(0., float4(d1, d2, d3, d)) * _IntensityMultiplier;
@@ -153,7 +152,7 @@
         {
             Blend One One
             CGPROGRAM
-            #pragma vertex VertDefaultBlit
+            #pragma vertex VertFlareGPUProjection
             #pragma fragment FlareProjectionFragment
             ENDCG
         }
@@ -178,7 +177,7 @@
         {
             Blend One One
             CGPROGRAM
-            #pragma vertex VertDefaultBlit
+            #pragma vertex VertStarburst
             #pragma fragment StarburstFragment
             ENDCG
         }

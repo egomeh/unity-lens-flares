@@ -5,23 +5,6 @@
 #define M_PI 3.1415926535897932384626433832795
 #define M_PI2 6.28318530718
 
-sampler2D _MainTex;
-float4 _MainTex_TexelSize;
-float4 _MainTex_ST;
-
-float4 _Threshold;
-float _SampleScale;
-
-sampler2D _BloomTex;
-float4 _Bloom_Settings;
-
-float4 _FlareOffsetAndScale;
-float4x4 _FlareTransform;
-
-float _AngleToLight;
-float4 _Axis;
-float _Aperture;
-
 struct AttributesDefault
 {
     float3 vertex : POSITION;
@@ -34,6 +17,33 @@ struct VaryingsDefault
     float2 texcoord : TEXCOORD0;
 };
 
+sampler2D _MainTex;
+float4 _MainTex_TexelSize;
+float4 _MainTex_ST;
+
+float4 _Threshold;
+float _SampleScale;
+
+sampler2D _BloomTex;
+float4 _Bloom_Settings;
+
+float4 _FlareOffsetAndScale;
+float4x4 _FlareTransform;
+float4x4 _StarburstTransform;
+
+float _AngleToLight;
+float4 _Axis;
+float _Aperture;
+float _ApertureHeight;
+float4x4 _SystemEntranceToAperture;
+
+float _GhostIndex;
+
+// x: Index of the ghost (which index in the ghost buffer to retrieve).
+// y: Center of the ghost (how far along the axis the ghost is placed).
+// z: Radius, the size of the quad to draw the flare.
+float4 _CenterRadius;
+
 VaryingsDefault VertDefault(AttributesDefault v)
 {
     VaryingsDefault o;
@@ -42,26 +52,54 @@ VaryingsDefault VertDefault(AttributesDefault v)
     return o;
 }
 
-VaryingsDefault VertDefaultBlit(AttributesDefault v)
+VaryingsDefault VertStarburst(AttributesDefault v)
 {
     VaryingsDefault o;
 
     o.vertex = float4(v.vertex, 1.);
-
-    o.vertex = mul(_FlareTransform, o.vertex);
-
+    o.vertex = mul(_StarburstTransform, o.vertex);
     o.vertex.y *= -_ProjectionParams.x;
-
     o.texcoord = v.uv;
 
     return o;
 }
 
-float smin(float a, float b, float k)
+VaryingsDefault VertFlareGPUProjection(AttributesDefault v)
 {
-    float diff = b - a;
-    float h = saturate(0.5 + 0.5 * diff / k);
-    return b - h * (diff + k * (1.0f - h));
+    VaryingsDefault o;
+
+    float center = _CenterRadius.x;
+    float radius = _CenterRadius.y;
+
+    float aspect = _ScreenParams.x / _ScreenParams.y;
+
+    float2 scale = float2(radius, radius * aspect);
+
+    float2 ghostOffset = _Axis.xy * center;
+
+    float4x4 ghostScale =
+    {
+        scale.x,     0., 0., 0.,
+        0.,     scale.y, 0., 0.,
+        0.,          0., 1., 0.,
+        0.,          0., 0., 1.
+    };
+
+    float4x4 ghostTranslation =
+    {
+        1., 0., 0., ghostOffset.x,
+        0., 1., 0., ghostOffset.y,
+        0., 0., 1.,            0.,
+        0., 0., 0.,            1.
+    };
+
+    matrix ghostTransform = mul(ghostTranslation, ghostScale);
+
+    o.vertex = mul(UNITY_MATRIX_M, float4(v.vertex, 1.));
+    o.vertex = mul(ghostTransform, o.vertex);
+    o.texcoord = v.uv;
+
+    return o;
 }
 
 float smax(float a, float b, float k)

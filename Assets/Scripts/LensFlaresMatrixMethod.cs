@@ -30,35 +30,32 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     static class Uniforms
     {
+        // Texture identifiers - Used during rendering of the flares
         public static readonly int _FlareCanvas = Shader.PropertyToID("_FlareCanvas");
-
-        // Transform that scales and translates the flare onto the screen
-        public static readonly int _FlareTransform = Shader.PropertyToID("_FlareTransform");
-
-        // A signed distance field the represents the 
         public static readonly int _ApertureTexture = Shader.PropertyToID("_ApertureTexture");
-        public static readonly int _FlareTexture = Shader.PropertyToID("_FlareTexture");
-        public static readonly int _ApertureEdges = Shader.PropertyToID("_ApertureEdges");
-        public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
-        public static readonly int _Intensity = Shader.PropertyToID("_Intensity");
+        public static readonly int _ApertureFFTTexture = Shader.PropertyToID("_ApertureFFTTexture");
+        public static readonly int _StarburstTransform = Shader.PropertyToID("_StarburstTransform");
+
+        // Uniforms related to drawing individual flares
         public static readonly int _FlareColor = Shader.PropertyToID("_FlareColor");
-
-        public static readonly int _ApertureScale = Shader.PropertyToID("_ApertureScale");
-
-        public static readonly int _IntensityMultiplier = Shader.PropertyToID("_IntensityMultiplier");
-        public static readonly int _AngleToLight = Shader.PropertyToID("_AngleToLight");
         public static readonly int _LightColor = Shader.PropertyToID("_LightColor");
-        public static readonly int _LightWavelength = Shader.PropertyToID("_LightWavelength");
         public static readonly int _Axis = Shader.PropertyToID("_Axis");
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
-
-        public static readonly int _GhostDataBuffer = Shader.PropertyToID("_GhostDataBuffer");
         public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
+        public static readonly int _CenterRadius = Shader.PropertyToID("_CenterRadius");
+        public static readonly int _VisibilityBuffer = Shader.PropertyToID("_VisibilityBuffer");
 
+        // Parameters used when drawing the Aperture SDF texture
+        public static readonly int _ApertureEdges = Shader.PropertyToID("_ApertureEdges");
+        public static readonly int _Smoothing = Shader.PropertyToID("_Smoothing");
+
+        // Parameters used during FFT computation
+        public static readonly int _PassParameters = Shader.PropertyToID("_PassParameters");
+
+        // Decides which direction a Gaussian blur pass occurs in
         public static readonly int _BlurDirection = Shader.PropertyToID("_BlurDirection");
 
-        // FFT related uniforms
-        public static readonly int _PassParameters = Shader.PropertyToID("_PassParameters");
+        // Texture identifiers - Used during prepare phase for computing the FFT
         public static readonly int _TextureSourceR = Shader.PropertyToID("TextureSourceR");
         public static readonly int _TextureSourceI = Shader.PropertyToID("TextureSourceI");
         public static readonly int _TextureTargetR = Shader.PropertyToID("TextureTargetR");
@@ -203,7 +200,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     public float distanceToNextInterface = 10f;
 
-    [Range(4, 10)]
+    [Range(5, 9)]
     public int aperatureEdges;
 
     [Range(0f, 1f)]
@@ -220,8 +217,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     public bool preferInstanced = false;
 
     public float occlusionDiskSize = 0.01f;
-
-    float m_OcclusionTime = 0f; 
 
     Camera m_Camera;
 
@@ -407,21 +402,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    ComputeBuffer m_GhostDataBuffer;
-
-    ComputeBuffer ghostDataBuffer
-    {
-        get
-        {
-            if (m_GhostDataBuffer == null)
-            {
-                Prepare();
-            }
-
-            return m_GhostDataBuffer;
-        }
-    }
-
     ComputeBuffer m_VisibilityBuffer;
 
     ComputeBuffer visibilityBuffer
@@ -447,12 +427,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         GraphicsUtils.Destroy(m_ApertureTexture);
         GraphicsUtils.Destroy(m_ApertureFourierTransform);
 
-        if (m_GhostDataBuffer != null)
-        {
-            m_GhostDataBuffer.Dispose();
-            m_GhostDataBuffer = null;
-        }
-
         if (m_CommandBuffer != null)
         {
             _camera.RemoveCommandBuffer(kEventHook, m_CommandBuffer);
@@ -468,7 +442,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_FlareGhosts = null;
         m_LensSystem = null;
         m_CommandBuffer = null;
-        m_GhostDataBuffer = null;
     }
 
     void OnEnable()
@@ -735,14 +708,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
                 float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
 
-                if (entranceToAperture.m00 > 0f)
-                {
-                    positiveSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
-                }
-                else
-                {
-                    negativeSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
-                }
+                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
 
@@ -790,23 +756,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float n1 = interfaces[i - 1].air ? kRefractiveIndexAir : interfaces[i - 1].refractiveIndex;
                 float n2 = interfaces[i].air ? kRefractiveIndexAir : interfaces[i].refractiveIndex;
 
-                if (entranceToAperture.m00 > 0f)
-                {
-                    positiveSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
-                }
-                else
-                {
-                    negativeSideOfAxis.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
-                }
+                flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
-
-        positiveSideOfAxis = positiveSideOfAxis.OrderBy(ghost => ghost.ma.m00).ToList();
-        negativeSideOfAxis = negativeSideOfAxis.OrderBy(ghost => ghost.ma.m00).ToList();
-        // Sot flares in the order the occur along the optical axis
-
-        flareGhosts.AddRange(positiveSideOfAxis);
-        flareGhosts.AddRange(negativeSideOfAxis);
         
         // *** Step 4 ***
 
@@ -830,7 +782,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Draw the aperture shape as a signed distance field
         material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
         material.SetFloat(Uniforms._Smoothing, smoothing);
-        material.SetFloat(Uniforms._ApertureScale, 1f);
 
         Graphics.Blit(null, m_ApertureTexture, material, (int)FlareShaderPasses.DrawApertureShape);
 
@@ -867,7 +818,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
-        starburstShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 1, 0, 0});
+        starburstShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
         
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
         starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
@@ -909,31 +860,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
 
         temporary.Release();
-        temporary = null;
-
-        if (m_GhostDataBuffer != null)
-        {
-            m_GhostDataBuffer.Dispose();
-            m_GhostDataBuffer = null;
-        }
-
-        // If instancing is preferred and supported
-        // Put all the needed data for the ghosts in a structured buffer
-        if (preferInstanced && SystemInfo.supportsInstancing)
-        {
-            m_GhostDataBuffer = new ComputeBuffer(m_FlareGhosts.Count, Marshal.SizeOf(typeof(GhostGPUData)));
-
-            GhostGPUData[] ghostData = new GhostGPUData[m_FlareGhosts.Count];
-
-            for (int i = 0; i < flareGhosts.Count; ++i)
-            {
-                ghostData[i].entranceToAperture = flareGhosts[i].ma;
-                ghostData[i].apertureToSensor = flareGhosts[i].ms;
-                ghostData[i].refractiveIncidences = new Vector4(flareGhosts[i].n1, flareGhosts[i].n2, 0f, 0f);
-            }
-
-            m_GhostDataBuffer.SetData(ghostData);
-        }
     }
 
     [ExecuteInEditMode]
@@ -950,27 +876,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Make sure the command buffer is empty
         m_CommandBuffer.Clear();
 
-        float occlusiontimeAddition = Time.deltaTime * .5f;
-
-        // Check if the light is visible, if not, don't fill command buffer for the light
-        if (mainLight.type == LightType.Directional)
-        {
-            if (Physics.Raycast(_camera.transform.position, -mainLight.transform.forward, _camera.farClipPlane))
-            {
-                occlusiontimeAddition = -occlusiontimeAddition;
-            }
-        }
-        else
-        {
-            Vector3 cameraToLight = mainLight.transform.position - _camera.transform.position;
-            if (Physics.Raycast(_camera.transform.position, cameraToLight, cameraToLight.magnitude))
-            {
-                occlusiontimeAddition = -occlusiontimeAddition;
-            }
-        }
-
-        m_OcclusionTime = Mathf.Clamp01(m_OcclusionTime + occlusiontimeAddition);
-
         const float k_FilmHeight = 24f;
         const float k_SensorSize = 43.2f;
 
@@ -978,8 +883,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         float focalLenghth = .5f * k_FilmHeight / Mathf.Tan(.5f * fov);
 
         float apertureHeight = focalLenghth / aperture;
-
-        // Get the angle to the light source
 
         // Light position in NDC
         Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
@@ -1047,7 +950,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
          // Resolve occlusion
         int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
-        // int debugTexture = Shader.PropertyToID("_DebugTexture");
         
         float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
 
@@ -1058,11 +960,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         // Is there a better way to reset
         visibilityBuffer.SetData(new uint[2] {0u, 0u});
-
-        //m_CommandBuffer.GetTemporaryRT(debugTexture, rds, FilterMode.Bilinear);
-
-        //m_CommandBuffer.SetRenderTarget(debugTexture);
-        //m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
         // x, y: light in 0-1 UV coordinates, z: light depth
         Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
@@ -1081,120 +978,77 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
         m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
 
-        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);;
 
-        // m_CommandBuffer.Blit(debugTexture, Uniforms._FlareCanvas);
+        // This should be clipped to avoid the critical angle of the lens system.
+        // TODO: Find tighter bound for clipping
+        float angle = Mathf.Min(.4f, angleToLight);
 
-        // m_CommandBuffer.ReleaseTemporaryRT(debugTexture);
+        // Set all uniforms that are shared among all flares.
+        material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
+        material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
+        material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
+        material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
+        material.SetVector(Uniforms._Axis, axis);
+        material.SetColor(Uniforms._LightColor, mainLight.color);
+        material.SetFloat(Uniforms._ApertureHeight, apertureHeight);
 
-        // m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
-
-        // this is to be removed
-        // m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
-        // m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
-        // Until here
-
-
-        // Offer both instanced drawing as well as per-ghost draw call
-        // But only take the instancing path if instancing is actually supported
-        // TODO: Eventually, this branching should be fully automatic
-        if (preferInstanced && SystemInfo.supportsInstancing)
+        // Drop a draw call per ghost
+        foreach (Ghost ghost in flareGhosts)
         {
-            // Set the ghost data
-            m_CommandBuffer.SetGlobalBuffer(Uniforms._GhostDataBuffer, ghostDataBuffer);
+            // Aperture projected onto the entrance
+            float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+            float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
 
-            // Set the axis on which the ghost should be drawn
-            m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
-            m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, m_OcclusionTime);
-            m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
-            m_CommandBuffer.SetGlobalVector(Uniforms._LightWavelength, new Vector4(kWavelengthRed, kWavelengthGreen, kWavelengthBlue, antiReflectiveCoatingWavelength));
-            m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, mainLight.color);
-            m_CommandBuffer.SetGlobalMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
-            m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
+            Matrix4x4 msma = ghost.ms * ghost.ma;
 
-            Matrix4x4[] matrices = new Matrix4x4[flareGhosts.Count];
-            for (int i = 0; i < matrices.Length; ++i)
+            // Map to sensor plane
+            float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
+            float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
+
+            // Project on to image circle
+            H_p1 /= k_SensorSize / 2f;
+            H_p2 /= k_SensorSize / 2f;
+
+            // Center: How far off of the optical axis the flare is
+            // Radius: The size of the quad
+            float center = (H_p1 + H_p2) / 2f;
+            float radius = Mathf.Abs(H_p1 - H_p2) / 2f;
+
+            // entrancePupil = H_a / system.M_a[0][0];
+            // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
+            // Intensity /= Square(2 * Radius);
+            // TODO: Check that intensity makes sense
+            // TODO: Check that parameters are given correctly
+            float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
+            float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
+            intensity = intensity / Mathf.Pow(2f * radius, 2f);
+
+            intensity = intensity * Mathf.Clamp01(1f - angleToLight);
+
+            // TODO: Figure out what exactly this means.
+            float d = antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
+
+            // Check how much red, green and blue light is reflected at the first interface the ray reflects at
+            // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
+            Color flareColor = new Color(0, 0, 0, 0);
+            flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+            flareColor *= intensity;
+
+            // If the ghost contributes less than a certain threshold, do not draw it
+            if (flareColor.maxColorComponent < 1e-3)
             {
-                matrices[i] = Matrix4x4.identity;
+                continue;
             }
 
-            m_CommandBuffer.DrawMeshInstanced(quad, 0, materialInstanced, 0, matrices, flareGhosts.Count);
-        }
-        else
-        {
-            // Drop a draw call per ghost
-            foreach (Ghost ghost in flareGhosts)
-            {
-                // Aperture projected onto the entrance
-                float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
-                float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+            // Prepare shader
+            m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
+            m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadius, new Vector4(center, radius, 0f, 0f));
 
-                Matrix4x4 msma = ghost.ms * ghost.ma;
-
-                // Map to sensor plane
-                float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
-                float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
-
-                // Project on to image circle
-                H_p1 /= k_SensorSize / 2f;
-                H_p2 /= k_SensorSize / 2f;
-
-                // Center: How far off of the optical axis the flare is
-                // Radius: The size of the quad
-                float center = (H_p1 + H_p2) / 2f;
-                float radius = Mathf.Abs(H_p1 - H_p2) / 2f;
-
-                // Transform given to the vertex shader to place the quad on screen.
-                Matrix4x4 flareTansform = Matrix4x4.Scale(new Vector3(radius, radius * _camera.aspect, 1f));
-                flareTansform = Matrix4x4.Translate(new Vector3(axis.x, axis.y, 0f) * center) * flareTansform;
-
-                // entrancePupil = H_a / system.M_a[0][0];
-                // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
-                // Intensity /= Square(2 * Radius);
-                // TODO: Check that intensity makes sense
-                // TODO: Check that parameters are given correctly
-                float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
-                float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
-                intensity = intensity / Mathf.Pow(2f * radius, 2f);
-
-                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
-                // intensity = Mathf.Clamp01(intensity);
-                // intensity = .05f;
-
-                // This should be clipped to avoid the critical angle of the lens system.
-                // TODO: Find tighter bound for clipping
-                float angle = Mathf.Min(.4f, angleToLight);
-
-                // TODO: Figure out what exactly this means.
-                float d = antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
-
-                // Check how much red, green and blue light is reflected at the first interface the ray reflects at
-                // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
-                Color flareColor = new Color(0, 0, 0, 0);
-                flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-                flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-                flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-                flareColor *= intensity;
-
-                // If the ghost contributes less than a certain threshold, do not draw it
-                if (flareColor.maxColorComponent < 3e-3)
-                {
-                    continue;
-                }
-
-                // Prepare shader
-                m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, intensity);
-                m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
-                m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, flareTansform);
-                m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureTexture);
-                m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
-
-                m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
-                m_CommandBuffer.SetGlobalBuffer("_Visibility", visibilityBuffer);
-
-                // Render quad with the aperture shape to the flare texture
-                m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
-            }
+            // Render quad with the aperture shape to the flare texture
+            m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
         }
 
         // Draw the star-burst
@@ -1203,22 +1057,14 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         float starburstScale = starburstBaseSize;
         Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
         starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
-
-        m_CommandBuffer.SetGlobalFloat(Uniforms._Intensity, 1f);
-
-        m_CommandBuffer.SetGlobalFloat("_VisibilitySamples", occlusionSamples);
-        m_CommandBuffer.SetGlobalBuffer("_Visibility", visibilityBuffer);
-
-        m_CommandBuffer.SetGlobalFloat(Uniforms._AngleToLight, angleToLight);
-        m_CommandBuffer.SetGlobalVector(Uniforms._LightColor, mainLight.color);
-        m_CommandBuffer.SetGlobalMatrix(Uniforms._FlareTransform, starburstTansform);
-        m_CommandBuffer.SetGlobalTexture(Uniforms._ApertureTexture, apertureFourierTransform);
-        m_CommandBuffer.SetGlobalFloat(Uniforms._IntensityMultiplier, 1f);
-
+        
+        material.SetMatrix(Uniforms._StarburstTransform, starburstTansform);
+        
+        // Draw the starburst
         m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
 
-        m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
-
+        // Draw the flare canvas onto the screen
+        // m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
         m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
 
         // End and release temporaries
