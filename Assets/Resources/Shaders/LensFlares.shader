@@ -23,7 +23,6 @@
 
         sampler2D _ApertureFFT;
 
-        StructuredBuffer<uint> _VisibilityBuffer;
         float _VisibilitySamples;
 
         sampler2D _TransmittanceResponse;
@@ -33,22 +32,11 @@
         float _Smoothing;
 
         float4 _FlareColor;
-        float4 _LineColor;
-        float4 _LightPositionIndicator;
-        float4 _LightPositionColor;
 
         float _ApertureScale;
         float _IntensityMultiplier;
 
         float2 _BlurDirection;
-
-        float Visibility()
-        {
-            float visiblePixels = _VisibilityBuffer[0];
-            float countingPixels = max(1., _VisibilityBuffer[1]);
-
-            return visiblePixels / countingPixels;
-        }
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
@@ -65,12 +53,12 @@
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
             float d = tex2D(_ApertureTexture, i.texcoord).r;
-            return d * _FlareColor;
+            return d * _FlareColor * Visibility();
         }
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
         {
-            return tex2D(_MainTex, i.texcoord) * Visibility();
+            return tex2D(_MainTex, i.texcoord);
         }
 
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target

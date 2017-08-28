@@ -6,7 +6,7 @@ static const float PI = 3.14159265f;
 
 CBUFFER_START(Params)
     float4 _LightPosition; // x, y: light in 0-1 UV coordinates, z: light depth
-    float4 _SamplingParams; // x: depth threshold, y: sample radius, z: number of samples in each dimension
+    float4 _SamplingParams; // x: depth threshold, y: sample radius, z: number of samples in each dimension, z: Offset in visibility buffer
     float4 _DepthTextureDimensions; // x: width, y: height, z: width / height
 CBUFFER_END
 
@@ -34,9 +34,11 @@ void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThr
     float depth = _CameraDepthTexture[samplingPosition];
     uint visible = step(depth, _LightPosition.z);
 
-    // Write whether the pixel is visible
-    InterlockedAdd(_Visibility[0u], visible * inSampleDisk);
+    uint visibilityBufferOffset = _SamplingParams.z;
 
-    // Increment counter if the pixel is significant
-    InterlockedAdd(_Visibility[1u], inSampleDisk);
+    // Write whether the pixel is visible
+    InterlockedAdd(_Visibility[visibilityBufferOffset], visible * inSampleDisk);
+
+    // Increment counter if the pixel is within sampling radius
+    InterlockedAdd(_Visibility[visibilityBufferOffset + 1u], inSampleDisk);
 }

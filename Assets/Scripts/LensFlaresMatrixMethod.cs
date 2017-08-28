@@ -42,7 +42,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _Axis = Shader.PropertyToID("_Axis");
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
         public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
-        public static readonly int _CenterRadius = Shader.PropertyToID("_CenterRadius");
+        public static readonly int _CenterRadiusLightOffset = Shader.PropertyToID("_CenterRadiusLightOffset");
         public static readonly int _VisibilityBuffer = Shader.PropertyToID("_VisibilityBuffer");
 
         // Parameters used when drawing the Aperture SDF texture
@@ -154,6 +154,20 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
+    [Serializable]
+    public class LightFlareInfo
+    {
+        public Light light;
+
+        public float occlusionDiskSize;
+
+        public LightFlareInfo()
+        {
+            light = null;
+            occlusionDiskSize = 0.01f;
+        }
+    }
+
     const float kRefractiveIndexAir = 1.000293f;
 
     const float kWavelengthRed = 700f;
@@ -197,8 +211,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             return m_OcclusionQueryShader;
         }
     }
-
-    public Light mainLight;
 
     public float distanceToFirstInterface = 1f;
 
@@ -377,7 +389,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    List<Ghost> m_FlareGhosts = null;
+    List<Ghost> m_FlareGhosts;
 
     List<Ghost> flareGhosts
     {
@@ -400,7 +412,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         {
             if (m_VisibilityBuffer == null)
             {
-                m_VisibilityBuffer = new ComputeBuffer(2, sizeof(uint));
+                m_VisibilityBuffer = new ComputeBuffer(settings.lights.Length * 2, sizeof(uint));
             }
 
             return m_VisibilityBuffer;
@@ -430,7 +442,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         [Range(300f, 1000f)]
         public float antiReflectiveCoatingWavelength;
 
-        public float occlusionDiskSize;
+        public LightFlareInfo[] lights;
 
         public static Settings defaultSettings
         {
@@ -444,7 +456,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                     smoothing = 0f,
                     starburstBaseSize = .2f,
                     antiReflectiveCoatingWavelength = 450f,
-                    occlusionDiskSize = 0.01f,
+                    lights = {},
                 };
             }
         }
@@ -506,6 +518,11 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     void OnValidate()
     {
         m_SettingsDirty = true;
+
+        foreach (LightFlareInfo lightSetting in settings.lights)
+        {
+            lightSetting.occlusionDiskSize = Mathf.Max(0.01f, lightSetting.occlusionDiskSize);
+        }
     }
 
     static float Reflectance(float wavelength, float coating, float angle, float n1, float n2, float n3)
@@ -910,6 +927,15 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         temporary.Release();
 
+        if (m_VisibilityBuffer != null)
+        {
+            if (m_VisibilityBuffer.count != settings.lights.Length * 2)
+            {
+                m_VisibilityBuffer.Dispose();
+                m_VisibilityBuffer = null;
+            }
+        }
+
         m_SettingsDirty = false;
     }
 
@@ -932,6 +958,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Make sure the command buffer is empty
         m_CommandBuffer.Clear();
 
+        m_CommandBuffer.BeginSample("Lens Flares");
+
+        // Prepare common values for all lights
         const float k_FilmHeight = 24f;
         const float k_SensorSize = 43.2f;
 
@@ -940,57 +969,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         float apertureHeight = focalLenghth / settings.aperture;
 
-        // Light position in NDC
-        Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
-
-        // The angle between the light direction and the camera forward direction
-        float angleToLight;
-
-        float lightDepth = 0f;
-        float uvSampleRadius = 0f;
-        if (mainLight.type == LightType.Point)
-        {
-            Vector3 directionToLight = mainLight.transform.position - _camera.transform.position;
-            angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
-
-            Vector3 lightPosition = new Vector4(mainLight.transform.position.x, mainLight.transform.position.y, mainLight.transform.position.z, 1f);
-
-            Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
-
-            lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
-
-            float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
-            float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
-            lightDepth = 1f - (a + b / directionToLight.magnitude);
-
-            float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
-
-            uvSampleRadius = settings.occlusionDiskSize / w;
-        }
-        else
-        {
-            angleToLight = Vector3.Angle(-mainLight.transform.forward, _camera.transform.forward);
-
-            Vector3 distantPoint = _camera.transform.position + mainLight.transform.forward * _camera.farClipPlane;
-            lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
-
-            uvSampleRadius = settings.occlusionDiskSize * .1f;
-        }
-
-        // If the camera is looking away from the light, do nothing
-        if (angleToLight > 90f)
-        {
-            return;
-        }
-
-        // Axis in screen space that intersects the center of the screen and the light projected
-        // in screen in NDC
-        Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
-        axis.Normalize();
-        axis.y = -axis.y;
-
-        angleToLight *= Mathf.Deg2Rad;
-
         int canvasWidth = Screen.width / (settings.flareBufferDivision + 1);
         int canvasHeight = Screen.height / (settings.flareBufferDivision + 1);
 
@@ -998,126 +976,184 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         RenderTargetIdentifier screenBufferIdentifier = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
 
-        m_CommandBuffer.BeginSample("Lens Flares");
-
         // Set the flare canvas as render target and clear it.
         m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
-         // Resolve occlusion
-        int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
-        
-        float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
+        // Is there a better way to reset?
+        visibilityBuffer.SetData(new uint[2 * settings.lights.Length]);
 
-        int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels)/Mathf.Log(2))));
-
-        RenderTextureDescriptor rds = new RenderTextureDescriptor(Screen.width, Screen.height, RenderTextureFormat.ARGBHalf, 0);
-        rds.enableRandomWrite = true;
-
-        // Is there a better way to reset
-        visibilityBuffer.SetData(new uint[2] {0u, 0u});
-
-        // x, y: light in 0-1 UV coordinates, z: light depth
-        Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
-
-        // x: sample radius, y: number of samples in each dimension
-        Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, 0f, 0f);
-
-        // x: width, y: height, z: width / height
-        Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
-
-        // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
-        m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
-
-        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
-        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
-
-        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);;
-
-        // This should be clipped to avoid the critical angle of the lens system.
-        // TODO: Find tighter bound for clipping
-        float angle = Mathf.Min(.4f, angleToLight);
-
-        // Set all uniforms that are shared among all flares.
-        material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
-        material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
-        material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
-        material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
-        material.SetVector(Uniforms._Axis, axis);
-        material.SetColor(Uniforms._LightColor, mainLight.color);
-        material.SetFloat(Uniforms._ApertureHeight, apertureHeight);
-
-        // Drop a draw call per ghost
-        foreach (Ghost ghost in flareGhosts)
+        for (int i = 0; i < settings.lights.Length; ++i)
         {
-            // Aperture projected onto the entrance
-            float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
-            float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+            Light light = settings.lights[i].light;
+            float occlusionDiskSize = settings.lights[i].occlusionDiskSize;
 
-            Matrix4x4 msma = ghost.ms * ghost.ma;
-
-            // Map to sensor plane
-            float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
-            float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
-
-            // Project on to image circle
-            H_p1 /= k_SensorSize / 2f;
-            H_p2 /= k_SensorSize / 2f;
-
-            // Center: How far off of the optical axis the flare is
-            // Radius: The size of the quad
-            float center = (H_p1 + H_p2) / 2f;
-            float radius = Mathf.Abs(H_p1 - H_p2) / 2f;
-
-            // entrancePupil = H_a / system.M_a[0][0];
-            // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
-            // Intensity /= Square(2 * Radius);
-            // TODO: Check that intensity makes sense
-            // TODO: Check that parameters are given correctly
-            float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
-            float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
-            intensity = intensity / Mathf.Pow(2f * radius, 2f);
-
-            intensity = intensity * Mathf.Clamp01(1f - angleToLight);
-
-            // TODO: Figure out what exactly this means.
-            float d = settings.antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
-
-            // Check how much red, green and blue light is reflected at the first interface the ray reflects at
-            // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
-            Color flareColor = new Color(0, 0, 0, 0);
-            flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-            flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-            flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-            flareColor *= intensity;
-
-            // If the ghost contributes less than a certain threshold, do not draw it
-            if (flareColor.maxColorComponent < 1e-3)
+            if (!light)
             {
                 continue;
             }
 
-            // Prepare shader
-            m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
-            m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadius, new Vector4(center, radius, 0f, 0f));
+            // Light position in NDC
+            Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
 
-            // Render quad with the aperture shape to the flare texture
-            m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
+            // The angle between the light direction and the camera forward direction
+            float angleToLight;
+
+            float lightDepth = 0f;
+            float uvSampleRadius = 0f;
+            if (light.type == LightType.Point)
+            {
+                Vector3 directionToLight = light.transform.position - _camera.transform.position;
+                angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
+
+                Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
+
+                Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
+
+                lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
+
+                float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
+                float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
+                lightDepth = 1f - (a + b / directionToLight.magnitude);
+
+                float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
+
+                uvSampleRadius = occlusionDiskSize / w;
+            }
+            else
+            {
+                angleToLight = Vector3.Angle(-light.transform.forward, _camera.transform.forward);
+
+                Vector3 distantPoint = _camera.transform.position + light.transform.forward * _camera.farClipPlane;
+                lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
+
+                uvSampleRadius = occlusionDiskSize;
+            }
+
+            // If the camera is looking away from the light, do nothing
+            if (angleToLight > 90f)
+            {
+                continue;
+            }
+
+            // Axis in screen space that intersects the center of the screen and the light projected
+            // in screen in NDC
+            Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
+            axis.Normalize();
+            axis.y = -axis.y;
+
+            angleToLight *= Mathf.Deg2Rad;
+
+             // Resolve occlusion
+            int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
+        
+            float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
+
+            int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels)/Mathf.Log(2))));
+
+            // x, y: light in 0-1 UV coordinates, z: light depth
+            Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
+
+            // x: sample radius, y: number of samples in each dimension, z: The offset into the occlusion buffer
+            Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, i * 2, 0f);
+
+            // x: width, y: height, z: width / height
+            Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
+
+            // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
+            m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
+
+            m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
+            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
+            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
+            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
+
+            m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+
+            // This should be clipped to avoid the critical angle of the lens system.
+            // TODO: Find tighter bound for clipping
+            float angle = Mathf.Min(.4f, angleToLight);
+
+            // Set all uniforms that are shared among all flares.
+            material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
+            material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
+            material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
+            material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
+
+            m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, light.color);
+            m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
+            m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
+
+            // Drop a draw call per ghost
+            foreach (Ghost ghost in flareGhosts)
+            {
+                // Aperture projected onto the entrance
+                float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+                float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+
+                Matrix4x4 msma = ghost.ms * ghost.ma;
+
+                // Map to sensor plane
+                float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
+                float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
+
+                // Project on to image circle
+                H_p1 /= k_SensorSize / 2f;
+                H_p2 /= k_SensorSize / 2f;
+
+                // Center: How far off of the optical axis the flare is
+                // Radius: The size of the quad
+                float center = (H_p1 + H_p2) / 2f;
+                float radius = Mathf.Abs(H_p1 - H_p2) / 2f;
+
+                // entrancePupil = H_a / system.M_a[0][0];
+                // Intensity = Square(H_e1 - H_e2) / Square(2 * entrancePupil);
+                // Intensity /= Square(2 * Radius);
+                // TODO: Check that intensity makes sense
+                // TODO: Check that parameters are given correctly
+                float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
+                float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
+                intensity = intensity / Mathf.Pow(2f * radius, 2f);
+
+                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
+
+                // TODO: Figure out what exactly this means.
+                float d = settings.antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
+
+                // Check how much red, green and blue light is reflected at the first interface the ray reflects at
+                // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
+                Color flareColor = new Color(0, 0, 0, 0);
+                flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+                flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+                flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
+                flareColor *= intensity * light.color * light.intensity;
+
+                // If the ghost contributes less than a certain threshold, do not draw it
+                if (flareColor.maxColorComponent < 8e-3f)
+                {
+                    continue;
+                }
+
+                // Prepare shader
+                m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
+                m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, i * 2, 0f));
+
+                // Render quad with the aperture shape to the flare texture
+                m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
+            }
+
+            // Draw the star-burst
+            Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
+
+            float starburstScale = settings.starburstBaseSize;
+            Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
+            starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
+        
+            m_CommandBuffer.SetGlobalMatrix(Uniforms._StarburstTransform, starburstTansform);
+        
+            // Draw the starburst
+            m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
         }
-
-        // Draw the star-burst
-        Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
-
-        float starburstScale = settings.starburstBaseSize;
-        Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
-        starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
-        
-        material.SetMatrix(Uniforms._StarburstTransform, starburstTansform);
-        
-        // Draw the starburst
-        m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
 
         // Draw the flare canvas onto the screen
         // m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);

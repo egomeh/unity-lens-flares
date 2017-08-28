@@ -21,14 +21,6 @@ sampler2D _MainTex;
 float4 _MainTex_TexelSize;
 float4 _MainTex_ST;
 
-float4 _Threshold;
-float _SampleScale;
-
-sampler2D _BloomTex;
-float4 _Bloom_Settings;
-
-float4 _FlareOffsetAndScale;
-float4x4 _FlareTransform;
 float4x4 _StarburstTransform;
 
 float _AngleToLight;
@@ -37,12 +29,12 @@ float _Aperture;
 float _ApertureHeight;
 float4x4 _SystemEntranceToAperture;
 
-float _GhostIndex;
+StructuredBuffer<uint> _VisibilityBuffer;
 
-// x: Index of the ghost (which index in the ghost buffer to retrieve).
-// y: Center of the ghost (how far along the axis the ghost is placed).
-// z: Radius, the size of the quad to draw the flare.
-float4 _CenterRadius;
+// x: Center of the ghost (how far along the axis the ghost is placed).
+// y: Radius, the size of the quad to draw the flare.
+// z: Offset into the visibility buffer
+float4 _CenterRadiusLightOffset;
 
 VaryingsDefault VertDefault(AttributesDefault v)
 {
@@ -68,8 +60,8 @@ VaryingsDefault VertFlareGPUProjection(AttributesDefault v)
 {
     VaryingsDefault o;
 
-    float center = _CenterRadius.x;
-    float radius = _CenterRadius.y;
+    float center = _CenterRadiusLightOffset.x;
+    float radius = _CenterRadiusLightOffset.y;
 
     float aspect = _ScreenParams.x / _ScreenParams.y;
 
@@ -100,6 +92,16 @@ VaryingsDefault VertFlareGPUProjection(AttributesDefault v)
     o.texcoord = v.uv;
 
     return o;
+}
+
+float Visibility()
+{
+    uint visibilityBufferOffset = _CenterRadiusLightOffset.z;
+
+    float visiblePixels = _VisibilityBuffer[visibilityBufferOffset];
+    float countingPixels = max(1., _VisibilityBuffer[visibilityBufferOffset + 1u]);
+
+    return visiblePixels / countingPixels;
 }
 
 float smax(float a, float b, float k)
