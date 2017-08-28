@@ -9,7 +9,7 @@
         Cull Off ZWrite Off ZTest Always
         Blend Off
         CGINCLUDE
-        #pragma multi_compile __ BLUR_PASS_VERTICAL
+        #pragma multi_compile __ COMPUTE_OCCLUSION_QUERY
         #pragma target 3.0
 
         #include "LensFlares.cginc"
@@ -22,8 +22,6 @@
         sampler2D _Imaginary;
 
         sampler2D _ApertureFFT;
-
-        float _VisibilitySamples;
 
         sampler2D _TransmittanceResponse;
         float4 _LightColor;

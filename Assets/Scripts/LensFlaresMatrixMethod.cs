@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -43,7 +41,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
         public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
         public static readonly int _CenterRadiusLightOffset = Shader.PropertyToID("_CenterRadiusLightOffset");
+
+        // Occlusion related uniforms
         public static readonly int _VisibilityBuffer = Shader.PropertyToID("_VisibilityBuffer");
+        public static readonly int _OcclusionFactor = Shader.PropertyToID("_OcclusionFactor");
 
         // Parameters used when drawing the Aperture SDF texture
         public static readonly int _ApertureEdges = Shader.PropertyToID("_ApertureEdges");
@@ -155,16 +156,22 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     }
 
     [Serializable]
-    public class LightFlareInfo
+    public class LightSettings
     {
         public Light light;
 
         public float occlusionDiskSize;
 
-        public LightFlareInfo()
+        public float occlusionTimeDelay;
+
+        internal float occlusionTimer;
+
+        public LightSettings()
         {
             light = null;
             occlusionDiskSize = 0.01f;
+            occlusionTimeDelay = 0.2f;
+            occlusionTimer = 1f;
         }
     }
 
@@ -442,7 +449,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         [Range(300f, 1000f)]
         public float antiReflectiveCoatingWavelength;
 
-        public LightFlareInfo[] lights;
+        public bool disallowComputeShaders;
+
+        public LightSettings[] lights;
 
         public static Settings defaultSettings
         {
@@ -456,6 +465,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                     smoothing = 0f,
                     starburstBaseSize = .2f,
                     antiReflectiveCoatingWavelength = 450f,
+                    disallowComputeShaders = false,
                     lights = {},
                 };
             }
@@ -477,6 +487,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
+    bool useComputeShaderOcclusion
+    {
+        get { return SystemInfo.supportsComputeShaders && !settings.disallowComputeShaders; }
+    }
 
     public void Clean()
     {
@@ -519,9 +533,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     {
         m_SettingsDirty = true;
 
-        foreach (LightFlareInfo lightSetting in settings.lights)
+        foreach (LightSettings lightSetting in settings.lights)
         {
             lightSetting.occlusionDiskSize = Mathf.Max(0.01f, lightSetting.occlusionDiskSize);
+            lightSetting.occlusionTimeDelay = Mathf.Max(0.01f, lightSetting.occlusionTimeDelay);
         }
     }
 
@@ -708,7 +723,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // reflect again on the i th interface.
         // refract throughout the rest of the system to the sensor plane.
 
-
         // Split in two passes.
         // One is for reflections that occur before aperture.
         // The other for reflections that occur after the aperture.
@@ -716,9 +730,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         // The index of the interface that corresponds to the aperture
         int apertureIndex = interfacesBeforeAperature.Length;
-
-        List<Ghost> positiveSideOfAxis = new List<Ghost>();
-        List<Ghost> negativeSideOfAxis = new List<Ghost>();
 
         // First pass is all even reflections form entrance to aperture
         for (int i = 0; i < interfacesBeforeAperature.Length - 1; ++i)
@@ -860,56 +871,65 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             m_ApertureFourierTransform = null;
         }
 
-        // Create the RenderTexture that the star-burst will be placed on
-        m_ApertureFourierTransform = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
-        m_ApertureFourierTransform.Create();
-
-        // Create Temporary RenderTextures
-        // The first 4 are used to compute the FFT of the aperture
-        // index 0 and 1 are used for the target real and imaginary values for the row pass of the FFT
-        // index 2 and 3 are used for the target real and imaginary of values for the column pass of the FFT
-        // index 4 is first used for a temporary scaled version of the aperture
-        // later index 4 is used as a `pingpong` buffer to do a Gaussian blur on the FFT texture
-        const int fftTextureCount = 5;
-        RenderTexture[] fftTextures = new RenderTexture[fftTextureCount];
-
-        for (int i = 0; i < fftTextureCount; ++i)
+        if (useComputeShaderOcclusion)
         {
-            fftTextures[i] = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
-            fftTextures[i].enableRandomWrite = true;
-            fftTextures[i].Create();
-        }
+            // Create the RenderTexture that the star-burst will be placed on
+            m_ApertureFourierTransform = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
+            m_ApertureFourierTransform.Create();
 
-        int starburstKernel = fourierTransformShader.FindKernel("ButterflySLM");
+            // Create Temporary RenderTextures
+            // The first 4 are used to compute the FFT of the aperture
+            // index 0 and 1 are used for the target real and imaginary values for the row pass of the FFT
+            // index 2 and 3 are used for the target real and imaginary of values for the column pass of the FFT
+            // index 4 is first used for a temporary scaled version of the aperture
+            // later index 4 is used as a `pingpong` buffer to do a Gaussian blur on the FFT texture
+            const int fftTextureCount = 5;
+            RenderTexture[] fftTextures = new RenderTexture[fftTextureCount];
 
-        int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
+            for (int i = 0; i < fftTextureCount; ++i)
+            {
+                fftTextures[i] = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
+                fftTextures[i].enableRandomWrite = true;
+                fftTextures[i].Create();
+            }
 
-        fourierTransformShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
+            int starburstKernel = fourierTransformShader.FindKernel("ButterflySLM");
+
+            int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
+
+            fourierTransformShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
         
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
-        fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
+            fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
-        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
+            fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
 
-        fourierTransformShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
-        fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
+            fourierTransformShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
+            fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
-        material.SetTexture(Uniforms._Real, fftTextures[2]);
-        material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
-        Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterScaleFade);
+            material.SetTexture(Uniforms._Real, fftTextures[2]);
+            material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
+            Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterScaleFade);
 
-         // Blur the Fourier transform of the aperture slightly
-        material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
-        Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
+             // Blur the Fourier transform of the aperture slightly
+            material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
+            Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
 
-        material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
-        Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
+            material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
+            Graphics.Blit(fftTextures[4], m_ApertureFourierTransform, material, (int)FlareShaderPasses.GaussianBlur);
+
+            for (int i = 0; i < fftTextureCount; ++i)
+            {
+                fftTextures[i].Release();
+                fftTextures[i] = null;
+            }
+        }
 
         // Blur the aperture texture
         // But maybe get heavier blur rather than run the same blur many times
@@ -918,12 +938,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         material.SetVector(Uniforms._BlurDirection, new Vector2(0f, 1f));
         Graphics.Blit(temporary, m_ApertureTexture, material, (int)FlareShaderPasses.GaussianBlur);
-
-        for (int i = 0; i < fftTextureCount; ++i)
-        {
-            fftTextures[i].Release();
-            fftTextures[i] = null;
-        }
 
         temporary.Release();
 
@@ -980,8 +994,19 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
-        // Is there a better way to reset?
-        visibilityBuffer.SetData(new uint[2 * settings.lights.Length]);
+        if (useComputeShaderOcclusion)
+        {
+            material.EnableKeyword("COMPUTE_OCCLUSION_QUERY");
+
+            visibilityBuffer.SetData(new uint[2 * settings.lights.Length]);
+
+            material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
+            material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
+        }
+        else
+        {
+            material.DisableKeyword("COMPUTE_OCCLUSION_QUERY");
+        }
 
         for (int i = 0; i < settings.lights.Length; ++i)
         {
@@ -1000,10 +1025,14 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             float angleToLight;
 
             float lightDepth = 0f;
-            float uvSampleRadius = 0f;
+            float uvSampleRadius;
+            Vector3 directionToLight;
+            float distanceToLight;
             if (light.type == LightType.Point)
             {
-                Vector3 directionToLight = light.transform.position - _camera.transform.position;
+                directionToLight = (light.transform.position - _camera.transform.position);
+                distanceToLight = directionToLight.magnitude;
+
                 angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
 
                 Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
@@ -1022,6 +1051,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             }
             else
             {
+                directionToLight = -light.transform.forward.normalized;
+                distanceToLight = _camera.farClipPlane;
                 angleToLight = Vector3.Angle(-light.transform.forward, _camera.transform.forward);
 
                 Vector3 distantPoint = _camera.transform.position + light.transform.forward * _camera.farClipPlane;
@@ -1044,31 +1075,55 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             angleToLight *= Mathf.Deg2Rad;
 
-             // Resolve occlusion
-            int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
-        
-            float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
+            if (useComputeShaderOcclusion)
+            {
+                // Resolve occlusion
+                int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
 
-            int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels)/Mathf.Log(2))));
+                float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
 
-            // x, y: light in 0-1 UV coordinates, z: light depth
-            Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
+                int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels) / Mathf.Log(2))));
 
-            // x: sample radius, y: number of samples in each dimension, z: The offset into the occlusion buffer
-            Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, i * 2, 0f);
+                // x, y: light in 0-1 UV coordinates, z: light depth
+                Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
 
-            // x: width, y: height, z: width / height
-            Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
+                // x: sample radius, y: number of samples in each dimension, z: The offset into the occlusion buffer
+                Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, i * 2, 0f);
 
-            // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
-            m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
+                // x: width, y: height, z: width / height
+                Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
 
-            m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
-            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
-            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
-            m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
+                // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
+                m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
 
-            m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+                m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
+                m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_FlareTexture", Uniforms._FlareCanvas);
+                m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
+                m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
+                m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
+
+                m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+            }
+            else
+            {
+                // The how much to change the occlusion timer
+                float occlusionTimerDelta = Time.deltaTime / settings.lights[i].occlusionTimeDelay;
+
+                // Check if the light is occluded by an obstacle
+                if (Physics.Raycast(transform.position, directionToLight, distanceToLight))
+                {
+                    settings.lights[i].occlusionTimer -= occlusionTimerDelta;
+                }
+                else
+                {
+                    settings.lights[i].occlusionTimer += occlusionTimerDelta;
+                }
+
+                // Make sure the timer stays in [0;1] range
+                settings.lights[i].occlusionTimer = Mathf.Clamp01(settings.lights[i].occlusionTimer);
+
+                m_CommandBuffer.SetGlobalFloat(Uniforms._OcclusionFactor, settings.lights[i].occlusionTimer);
+            }
 
             // This should be clipped to avoid the critical angle of the lens system.
             // TODO: Find tighter bound for clipping
@@ -1076,8 +1131,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             // Set all uniforms that are shared among all flares.
             material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
-            material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
-            material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
             material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
 
             Color lightColor = light.color;
@@ -1131,7 +1184,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor *= intensity * light.color * light.intensity;
 
                 // If the ghost contributes less than a certain threshold, do not draw it
-                if (flareColor.maxColorComponent < 8e-3f)
+                if (flareColor.maxColorComponent < 2e-3f)
                 {
                     continue;
                 }
@@ -1143,18 +1196,23 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 // Render quad with the aperture shape to the flare texture
                 m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
             }
+            
+            // If the system supports compute shaders, the FFT texture was generated and can be drawn
+            // If not, the FFT texture is not aavailable, and will not be drawn
+            if (useComputeShaderOcclusion)
+            {
+                // Draw the star-burst
+                Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
 
-            // Draw the star-burst
-            Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
-
-            float starburstScale = settings.starburstBaseSize;
-            Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
-            starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
+                float starburstScale = settings.starburstBaseSize;
+                Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
+                starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
         
-            m_CommandBuffer.SetGlobalMatrix(Uniforms._StarburstTransform, starburstTansform);
+                m_CommandBuffer.SetGlobalMatrix(Uniforms._StarburstTransform, starburstTansform);
         
-            // Draw the starburst
-            m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
+                // Draw the starburst
+                m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
+            }
         }
 
         // Draw the flare canvas onto the screen

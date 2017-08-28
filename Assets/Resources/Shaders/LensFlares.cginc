@@ -29,7 +29,12 @@ float _Aperture;
 float _ApertureHeight;
 float4x4 _SystemEntranceToAperture;
 
+// Use only structured buffer for occlusion when compute shaders are supported
+#if defined(COMPUTE_OCCLUSION_QUERY)
 StructuredBuffer<uint> _VisibilityBuffer;
+#else
+float _OcclusionFactor;
+#endif
 
 // x: Center of the ghost (how far along the axis the ghost is placed).
 // y: Radius, the size of the quad to draw the flare.
@@ -96,12 +101,16 @@ VaryingsDefault VertFlareGPUProjection(AttributesDefault v)
 
 float Visibility()
 {
+#if defined(COMPUTE_OCCLUSION_QUERY)
     uint visibilityBufferOffset = _CenterRadiusLightOffset.z;
 
     float visiblePixels = _VisibilityBuffer[visibilityBufferOffset];
     float countingPixels = max(1., _VisibilityBuffer[visibilityBufferOffset + 1u]);
 
     return visiblePixels / countingPixels;
+#else
+    return _OcclusionFactor;
+#endif
 }
 
 float smax(float a, float b, float k)
