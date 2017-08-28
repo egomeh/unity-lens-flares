@@ -30,12 +30,14 @@ void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThr
     uint2 samplingPosition = lightTexturePosition + threadPosition - _SamplingParams.y / 2u;
 
     float2 sampleTexcoord = float2(samplingPosition) / _DepthTextureDimensions.xy;
-    sampleTexcoord = saturate(sampleTexcoord);
 
     uint inSampleDisk = step(length((sampleTexcoord - lightTexcoord) / aspectCorrection), _SamplingParams.x);
 
+    float2 onScreenXY = 1. - (step(0., sampleTexcoord) - step(sampleTexcoord, 1.));
+    uint onScreen = onScreenXY.x * onScreenXY.y;
+
     float depth = _CameraDepthTexture[samplingPosition];
-    uint visible = step(depth, _LightPosition.z);
+    uint visible = step(depth, _LightPosition.z) * onScreen;
 
     uint visibilityBufferOffset = _SamplingParams.z;
 
