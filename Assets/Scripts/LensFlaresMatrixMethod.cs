@@ -110,20 +110,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    struct GhostGPUData
-    {
-        // Matrix that maps rays from entrance pupil to aperture
-        public Matrix4x4 entranceToAperture;
-
-        // Matrix that maps rays from aperture to the sensor plane
-        public Matrix4x4 apertureToSensor;
-
-        // x: Refractive index of the element that lies before the reflection
-        // y: Refractive index of the element that the flare reflection occurs against
-        public Vector4 refractiveIncidences;
-    }
-
     class LensSystem
     {
         Matrix4x4 m_EntranceToAperture;
@@ -181,10 +167,36 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     const CameraEvent kEventHook = CameraEvent.AfterImageEffects;
 
     // Compute shader to compute the FFT of the aperture
-    public ComputeShader starburstShader;
+    ComputeShader m_FourierTransformShader;
+
+    ComputeShader fourierTransformShader
+    {
+        get
+        {
+            if (!m_FourierTransformShader)
+            {
+                m_FourierTransformShader = Resources.Load<ComputeShader>("Shaders/FFT");
+            }
+
+            return m_FourierTransformShader;
+        }
+    }
 
     // Shader to check if pixels in the depth buffer exceed certain value
-    public ComputeShader occlusionQueryShader;
+    ComputeShader m_OcclusionQueryShader;
+
+    ComputeShader occlusionQueryShader
+    {
+        get
+        {
+            if (!m_OcclusionQueryShader)
+            {
+                m_OcclusionQueryShader = Resources.Load<ComputeShader>("Shaders/Occlusionquery");
+            }
+
+            return m_OcclusionQueryShader;
+        }
+    }
 
     public Light mainLight;
 
@@ -213,8 +225,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     [Range(300f, 1000f)]
     public float antiReflectiveCoatingWavelength = 450;
-
-    public bool preferInstanced = false;
 
     public float occlusionDiskSize = 0.01f;
 
@@ -814,25 +824,25 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             fftTextures[i].Create();
         }
 
-        int starburstKernel = starburstShader.FindKernel("ButterflySLM");
+        int starburstKernel = fourierTransformShader.FindKernel("ButterflySLM");
 
         int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
-        starburstShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
+        fourierTransformShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
         
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
-        starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[1]);
+        fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
-        starburstShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, fftTextures[0]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[1]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
+        fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
 
-        starburstShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
-        starburstShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
+        fourierTransformShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
+        fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
         material.SetTexture(Uniforms._Real, fftTextures[2]);
         material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
