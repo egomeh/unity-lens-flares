@@ -101,7 +101,7 @@
             float d3 = tex2D(_ApertureFFTTexture, texcoordBlue).r;
             float d = length(float3(d1, d2, d3));
 
-            return max(0., float4(d1, d2, d3, d)) * Visibility();
+            return max(0., float4(d1, d2, d3, d)) * Visibility() * _LightColor.a;
         }
 
         float4 EdgeFadeFragment(VaryingsDefault i) : SV_Target

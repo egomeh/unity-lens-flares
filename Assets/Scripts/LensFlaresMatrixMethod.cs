@@ -1080,7 +1080,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
             material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
 
-            m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, light.color);
+            Color lightColor = light.color;
+            lightColor.a = light.intensity;
+            m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, lightColor);
             m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
 
