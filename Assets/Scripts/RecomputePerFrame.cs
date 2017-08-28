@@ -32,8 +32,9 @@ public class RecomputePerFrame : MonoBehaviour
 
         if (activeMode)
         {
-            m_FlareComponent.aperatureEdges = 5 + Time.renderedFrameCount % 2;
-            m_FlareComponent.Prepare();
+            LensFlaresMatrixMethod.Settings settings = m_FlareComponent.settings;
+            settings.aperatureEdges = 5 + Time.renderedFrameCount % 2;
+            m_FlareComponent.settings = settings;
         }
     }
 }

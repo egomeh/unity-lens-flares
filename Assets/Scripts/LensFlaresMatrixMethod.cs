@@ -154,55 +154,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    [Serializable]
-    public struct Settings
-    {
-        [Range(1f, 32f)]
-        public float aperture;
-
-        [Range(1, 8)]
-        public int flareBufferDivision;
-
-        [Range(5, 9)]
-        public int aperatureEdges;
-
-        [Range(0f, 1f)]
-        public float smoothing;
-
-        [Range(0f, 1f)]
-        public float starburstBaseSize;
-
-        [Range(300f, 1000f)]
-        public float antiReflectiveCoatingWavelength;
-
-        public float occlusionDiskSize;
-
-        public static Settings defaultSettings
-        {
-            get
-            {
-                return new Settings
-                {
-                    aperture = 1f,
-                    flareBufferDivision = 1,
-                    aperatureEdges = 5,
-                    smoothing = 0f,
-                    starburstBaseSize = .2f,
-                    antiReflectiveCoatingWavelength = 450f,
-                    occlusionDiskSize = 0.01f,
-                };
-            }
-        }
-    }
-
-    [SerializeField]
-    Settings m_Settings = Settings.defaultSettings;
-    public Settings settings
-    {
-        get { return m_Settings; }
-        set { m_Settings = value; }
-    }
-
     const float kRefractiveIndexAir = 1.000293f;
 
     const float kWavelengthRed = 700f;
@@ -271,9 +222,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    private Shader m_Shader;
+    Shader m_Shader;
 
-    private Shader shader
+    Shader shader
     {
         get
         {
@@ -458,6 +409,63 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     CommandBuffer m_CommandBuffer;
 
+    [Serializable]
+    public struct Settings
+    {
+        [Range(1f, 32f)]
+        public float aperture;
+
+        [Range(1, 8)]
+        public int flareBufferDivision;
+
+        [Range(5, 9)]
+        public int aperatureEdges;
+
+        [Range(0f, 1f)]
+        public float smoothing;
+
+        [Range(0f, 1f)]
+        public float starburstBaseSize;
+
+        [Range(300f, 1000f)]
+        public float antiReflectiveCoatingWavelength;
+
+        public float occlusionDiskSize;
+
+        public static Settings defaultSettings
+        {
+            get
+            {
+                return new Settings
+                {
+                    aperture = 1f,
+                    flareBufferDivision = 1,
+                    aperatureEdges = 5,
+                    smoothing = 0f,
+                    starburstBaseSize = .2f,
+                    antiReflectiveCoatingWavelength = 450f,
+                    occlusionDiskSize = 0.01f,
+                };
+            }
+        }
+    }
+
+    [SerializeField]
+    bool m_SettingsDirty;
+
+    [SerializeField]
+    Settings m_Settings = Settings.defaultSettings;
+    public Settings settings
+    {
+        get { return m_Settings; }
+        set
+        {
+            m_Settings = value;
+            m_SettingsDirty = true;
+        }
+    }
+
+
     public void Clean()
     {
         GraphicsUtils.Destroy(m_Material);
@@ -486,16 +494,18 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     void OnEnable()
     {
         _camera.depthTextureMode |= DepthTextureMode.Depth;
+        m_SettingsDirty = true;
     }
 
     void OnDisable()
     {
+        m_SettingsDirty = true;
         Clean();
     }
 
     void OnValidate()
     {
-        Clean();
+        m_SettingsDirty = true;
     }
 
     static float Reflectance(float wavelength, float coating, float angle, float n1, float n2, float n3)
@@ -899,11 +909,18 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
 
         temporary.Release();
+
+        m_SettingsDirty = false;
     }
 
     [ExecuteInEditMode]
     void OnPreRender()
     {
+        if (m_SettingsDirty)
+        {
+            Prepare();
+        }
+
         if (m_CommandBuffer == null)
         {
             m_CommandBuffer = new CommandBuffer();
