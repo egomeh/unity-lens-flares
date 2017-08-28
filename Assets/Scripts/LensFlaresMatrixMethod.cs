@@ -154,6 +154,55 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
+    [Serializable]
+    public struct Settings
+    {
+        [Range(1f, 32f)]
+        public float aperture;
+
+        [Range(1, 8)]
+        public int flareBufferDivision;
+
+        [Range(5, 9)]
+        public int aperatureEdges;
+
+        [Range(0f, 1f)]
+        public float smoothing;
+
+        [Range(0f, 1f)]
+        public float starburstBaseSize;
+
+        [Range(300f, 1000f)]
+        public float antiReflectiveCoatingWavelength;
+
+        public float occlusionDiskSize;
+
+        public static Settings defaultSettings
+        {
+            get
+            {
+                return new Settings
+                {
+                    aperture = 1f,
+                    flareBufferDivision = 1,
+                    aperatureEdges = 5,
+                    smoothing = 0f,
+                    starburstBaseSize = .2f,
+                    antiReflectiveCoatingWavelength = 450f,
+                    occlusionDiskSize = 0.01f,
+                };
+            }
+        }
+    }
+
+    [SerializeField]
+    Settings m_Settings = Settings.defaultSettings;
+    public Settings settings
+    {
+        get { return m_Settings; }
+        set { m_Settings = value; }
+    }
+
     const float kRefractiveIndexAir = 1.000293f;
 
     const float kWavelengthRed = 700f;
@@ -202,31 +251,11 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
     public float distanceToFirstInterface = 1f;
 
-    [Range(1, 8)]
-    public int flareBufferDivision = 1;
-
     public Lens[] interfacesBeforeAperature;
-
-    [Range(1f, 32f)]
-    public float aperture = 1f;
 
     public float distanceToNextInterface = 10f;
 
-    [Range(5, 9)]
-    public int aperatureEdges;
-
-    [Range(0f, 1f)]
-    public float smoothing;
-
-    [Range(0f, 1f)]
-    public float starburstBaseSize = .2f;
-
     public Lens[] interfacesAfterAperature;
-
-    [Range(300f, 1000f)]
-    public float antiReflectiveCoatingWavelength = 450;
-
-    public float occlusionDiskSize = 0.01f;
 
     Camera m_Camera;
 
@@ -257,7 +286,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    private Material m_Material;
+    Material m_Material;
 
     Material material
     {
@@ -790,8 +819,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_ApertureTexture.Create();
 
         // Draw the aperture shape as a signed distance field
-        material.SetInt(Uniforms._ApertureEdges, aperatureEdges);
-        material.SetFloat(Uniforms._Smoothing, smoothing);
+        material.SetInt(Uniforms._ApertureEdges, settings.aperatureEdges);
+        material.SetFloat(Uniforms._Smoothing, settings.smoothing);
 
         Graphics.Blit(null, m_ApertureTexture, material, (int)FlareShaderPasses.DrawApertureShape);
 
@@ -892,7 +921,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         float fov = _camera.fieldOfView * Mathf.Deg2Rad;
         float focalLenghth = .5f * k_FilmHeight / Mathf.Tan(.5f * fov);
 
-        float apertureHeight = focalLenghth / aperture;
+        float apertureHeight = focalLenghth / settings.aperture;
 
         // Light position in NDC
         Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
@@ -919,7 +948,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
 
-            uvSampleRadius = occlusionDiskSize / w;
+            uvSampleRadius = settings.occlusionDiskSize / w;
         }
         else
         {
@@ -928,7 +957,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             Vector3 distantPoint = _camera.transform.position + mainLight.transform.forward * _camera.farClipPlane;
             lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
 
-            uvSampleRadius = occlusionDiskSize * .1f;
+            uvSampleRadius = settings.occlusionDiskSize * .1f;
         }
 
         // If the camera is looking away from the light, do nothing
@@ -945,8 +974,8 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
         angleToLight *= Mathf.Deg2Rad;
 
-        int canvasWidth = Screen.width / (flareBufferDivision + 1);
-        int canvasHeight = Screen.height / (flareBufferDivision + 1);
+        int canvasWidth = Screen.width / (settings.flareBufferDivision + 1);
+        int canvasHeight = Screen.height / (settings.flareBufferDivision + 1);
 
         m_CommandBuffer.GetTemporaryRT(Uniforms._FlareCanvas, canvasWidth, canvasHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
 
@@ -1037,7 +1066,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             intensity = intensity * Mathf.Clamp01(1f - angleToLight);
 
             // TODO: Figure out what exactly this means.
-            float d = antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
+            float d = settings.antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
 
             // Check how much red, green and blue light is reflected at the first interface the ray reflects at
             // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
@@ -1064,7 +1093,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // Draw the star-burst
         Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
 
-        float starburstScale = starburstBaseSize;
+        float starburstScale = settings.starburstBaseSize;
         Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
         starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
         
