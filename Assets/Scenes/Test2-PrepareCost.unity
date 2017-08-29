@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028334, g: 0.2257134, b: 0.30692226, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028417, g: 0.22571458, b: 0.30692312, a: 1}
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
@@ -135,7 +135,7 @@ Light:
   m_Type: 2
   m_Color: {r: 0.7520545, g: 0.9558824, b: 0.9137111, a: 1}
   m_Intensity: 1
-  m_Range: 10
+  m_Range: 51.64
   m_SpotAngle: 30
   m_CookieSize: 10
   m_Shadows:
@@ -263,7 +263,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 44113606}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.84, y: 0.211, z: 2.79}
+  m_LocalPosition: {x: 2.504, y: 0.211, z: 2.236}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -577,11 +577,11 @@ Light:
   m_GameObject: {fileID: 1751897765}
   m_Enabled: 1
   serializedVersion: 8
-  m_Type: 2
+  m_Type: 0
   m_Color: {r: 0.9264706, g: 0.8569383, b: 0.67441607, a: 1}
   m_Intensity: 1
-  m_Range: 10
-  m_SpotAngle: 30
+  m_Range: 36.229393
+  m_SpotAngle: 34
   m_CookieSize: 10
   m_Shadows:
     m_Type: 0
@@ -625,13 +625,13 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1751897765}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1, y: 0.1456685, z: 1.5007195}
+  m_LocalRotation: {x: -0, y: -0.21361677, z: -0, w: 0.97691756}
+  m_LocalPosition: {x: 2.591, y: 0.1456685, z: -1.104}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 6
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -24.669, z: 0}
 --- !u!1 &1764788228
 GameObject:
   m_ObjectHideFlags: 0
@@ -645,7 +645,6 @@ GameObject:
   - component: {fileID: 1764788231}
   - component: {fileID: 1764788230}
   - component: {fileID: 1764788229}
-  - component: {fileID: 1764788235}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -664,7 +663,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e6b4e27f5825a5c41905b8ceff50b154, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  distanceToFirstInterface: 10
   interfacesBeforeAperature:
   - distanceToNext: 6.41
     flat: 0
@@ -723,21 +721,17 @@ MonoBehaviour:
     radius: -52.99
     air: 1
     refractiveIndex: 0
-  m_SettingsDirty: 1
   m_Settings:
-    aperture: 1
+    aperture: 2.1
     flareBufferDivision: 1
-    aperatureEdges: 6
-    smoothing: 0.155
-    starburstBaseSize: 0.227
+    apertureEdges: 6
+    smoothing: 0.13
+    starburstBaseSize: 0.38
     antiReflectiveCoatingWavelength: 752
     disallowComputeShaders: 0
     lights:
-    - light: {fileID: 2261012}
-      occlusionDiskSize: 0.05
-      occlusionTimeDelay: 0.5
     - light: {fileID: 1751897766}
-      occlusionDiskSize: 0.05
+      occlusionDiskSize: 0.01
       occlusionTimeDelay: 0.5
 --- !u!81 &1764788230
 AudioListener:
@@ -802,24 +796,13 @@ Transform:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1764788228}
-  m_LocalRotation: {x: -0.0365864, y: 0.9383455, z: 0.32737258, w: 0.10486386}
-  m_LocalPosition: {x: 2.009161, y: -4.086776, z: 6.759517}
+  m_LocalRotation: {x: 0.22583863, y: -0.33756018, z: 0.083781525, w: 0.90996194}
+  m_LocalPosition: {x: 5.80528, y: 1.6354221, z: -1.5781455}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 3.9840002, y: 321.21, z: 0.002}
---- !u!114 &1764788235
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_PrefabParentObject: {fileID: 0}
-  m_PrefabInternal: {fileID: 0}
-  m_GameObject: {fileID: 1764788228}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ec55defdd71c8524793a8a591a8be946, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &1801951806
 GameObject:
   m_ObjectHideFlags: 0

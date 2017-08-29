@@ -219,8 +219,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    public float distanceToFirstInterface = 1f;
-
     public Lens[] interfacesBeforeAperature;
 
     public float distanceToNextInterface = 10f;
@@ -438,7 +436,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public int flareBufferDivision;
 
         [Range(5, 9)]
-        public int aperatureEdges;
+        public int apertureEdges;
 
         [Range(0f, 1f)]
         public float smoothing;
@@ -461,7 +459,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 {
                     aperture = 1f,
                     flareBufferDivision = 1,
-                    aperatureEdges = 5,
+                    apertureEdges = 5,
                     smoothing = 0f,
                     starburstBaseSize = .2f,
                     antiReflectiveCoatingWavelength = 450f,
@@ -472,7 +470,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    [SerializeField]
     bool m_SettingsDirty;
 
     [SerializeField]
@@ -487,7 +484,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         }
     }
 
-    bool useComputeShaderOcclusion
+    bool useComputeShaders
     {
         get { return SystemInfo.supportsComputeShaders && !settings.disallowComputeShaders; }
     }
@@ -649,7 +646,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         // T0 is the translation from the entrance of the camera
         // to the first optical element
         Matrix4x4 T0 = Matrix4x4.identity;
-        T0[0, 1] = distanceToFirstInterface;
+
+        // For entrance clipping, T[0, 1] should be the distance from entrance to the first interface
+        T0[0, 1] = 0f;
 
         // Go though each interface and build the transforms
         float previousRefractiveIndex = kRefractiveIndexAir;
@@ -851,13 +850,14 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         RenderTexture temporary = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.ARGB32);
 
         m_ApertureTexture.filterMode = FilterMode.Bilinear;
+        m_ApertureTexture.useMipMap = true;
         temporary.filterMode = FilterMode.Bilinear;
 
         temporary.Create();
         m_ApertureTexture.Create();
 
         // Draw the aperture shape as a signed distance field
-        material.SetInt(Uniforms._ApertureEdges, settings.aperatureEdges);
+        material.SetInt(Uniforms._ApertureEdges, settings.apertureEdges);
         material.SetFloat(Uniforms._Smoothing, settings.smoothing);
 
         Graphics.Blit(null, m_ApertureTexture, material, (int)FlareShaderPasses.DrawApertureShape);
@@ -871,7 +871,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             m_ApertureFourierTransform = null;
         }
 
-        if (useComputeShaderOcclusion)
+        if (useComputeShaders)
         {
             // Create the RenderTexture that the star-burst will be placed on
             m_ApertureFourierTransform = new RenderTexture(kApertureResolution, kApertureResolution, 0, RenderTextureFormat.RFloat);
@@ -994,7 +994,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
-        if (useComputeShaderOcclusion)
+        if (useComputeShaders)
         {
             material.EnableKeyword("COMPUTE_OCCLUSION_QUERY");
 
@@ -1025,6 +1025,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             float angleToLight;
 
             float lightDepth = 0f;
+            float lightAttenuation = 1f;
             float uvSampleRadius;
             Vector3 directionToLight;
             float distanceToLight;
@@ -1048,8 +1049,40 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
 
                 uvSampleRadius = occlusionDiskSize / w;
+
+                float normalizedDistanceToLight = Mathf.Clamp01(directionToLight.magnitude / light.range);
+                lightAttenuation = 1f / (1f + 25f * normalizedDistanceToLight * normalizedDistanceToLight);
             }
-            else
+            else if (light.type == LightType.Spot)
+            {
+                directionToLight = (light.transform.position - _camera.transform.position);
+                distanceToLight = directionToLight.magnitude;
+
+                angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
+                float angleToLightDirection = Vector3.Angle(-light.transform.forward, _camera.transform.forward);
+
+                Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
+
+                Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
+
+                lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
+
+                float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
+                float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
+                lightDepth = 1f - (a + b / directionToLight.magnitude);
+
+                float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
+
+                uvSampleRadius = occlusionDiskSize / w;
+
+                float normalizedDistanceToLight = Mathf.Clamp01(directionToLight.magnitude / light.range);
+                lightAttenuation = 1f / (1f + 25f * normalizedDistanceToLight * normalizedDistanceToLight);
+
+                float coneEdgeProximity = Mathf.SmoothStep(0f, 1f, ((light.spotAngle * .5f - angleToLightDirection) / light.spotAngle) + .5f);
+                Debug.Log("Cone: " + coneEdgeProximity);
+                lightAttenuation *= coneEdgeProximity;
+            }
+            else if (light.type == LightType.Directional)
             {
                 directionToLight = -light.transform.forward.normalized;
                 distanceToLight = _camera.farClipPlane;
@@ -1059,15 +1092,21 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
 
                 uvSampleRadius = occlusionDiskSize;
+                lightAttenuation = 1f;
+            }
+            else
+            {
+                // If the light is not point, directional or spot light, skip it.
+                continue;
             }
 
-            // If the camera is looking away from the light, do nothing
+            // If the camera is looking away from the light, or the light is too dim skip it.
             if (angleToLight > 90f)
             {
                 continue;
             }
 
-            // Axis in screen space that intersects the center of the screen and the light projected
+            // Axis in screen space that intersects the center of the screen and the light projected.
             // in screen in NDC
             Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
             axis.Normalize();
@@ -1075,7 +1114,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
 
             angleToLight *= Mathf.Deg2Rad;
 
-            if (useComputeShaderOcclusion)
+            if (useComputeShaders)
             {
                 // Resolve occlusion
                 int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
@@ -1134,10 +1173,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
 
             Color lightColor = light.color;
-            lightColor.a = light.intensity;
+            lightColor.a = light.intensity * lightAttenuation;
             m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, lightColor);
             m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
+
+            float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
 
             // Drop a draw call per ghost
             foreach (Ghost ghost in flareGhosts)
@@ -1166,14 +1207,18 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 // Intensity /= Square(2 * Radius);
                 // TODO: Check that intensity makes sense
                 // TODO: Check that parameters are given correctly
-                float entrancePupil = apertureHeight / lensSystem.entranceToAperture.m00;
                 float intensity = Mathf.Pow(H_e1 - H_e2, 2f) / Mathf.Pow(2f * entrancePupil, 2f);
-                intensity = intensity / Mathf.Pow(2f * radius, 2f);
 
-                intensity = intensity * Mathf.Clamp01(1f - angleToLight);
+                // This line should be physically correct, but intensities reach far too high values. 
+                // intensity = intensity / Mathf.Pow(2f * radius, 2f);
+
+                // This line is gives better intensity ranges, but does not appear correct in a physical context.
+                intensity = intensity / Mathf.Pow(2f * radius * settings.aperture, 2f);
+
+                intensity = Mathf.Min(intensity * Mathf.Clamp01(1f - angleToLight), 100f);
 
                 // TODO: Figure out what exactly this means.
-                float d = settings.antiReflectiveCoatingWavelength / 4.0f / ghost.n1;
+                float d = settings.antiReflectiveCoatingWavelength / 4f / ghost.n1;
 
                 // Check how much red, green and blue light is reflected at the first interface the ray reflects at
                 // TODO: Figure out if this is correct, and if the passed parameters are correctly chosen
@@ -1181,10 +1226,16 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-                flareColor *= intensity * light.color * light.intensity;
+                flareColor *= intensity * light.color * light.intensity * lightAttenuation;
 
                 // If the ghost contributes less than a certain threshold, do not draw it
                 if (flareColor.maxColorComponent < 2e-3f)
+                {
+                    continue;
+                }
+
+                // If the ghost is smaller than 1e-3 it's not likely to be seen
+                if (radius < 1e-3)
                 {
                     continue;
                 }
@@ -1199,7 +1250,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
             
             // If the system supports compute shaders, the FFT texture was generated and can be drawn
             // If not, the FFT texture is not aavailable, and will not be drawn
-            if (useComputeShaderOcclusion)
+            if (useComputeShaders)
             {
                 // Draw the star-burst
                 Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
@@ -1207,9 +1258,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 float starburstScale = settings.starburstBaseSize;
                 Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
                 starburstTansform = Matrix4x4.Translate(toLight) * starburstTansform;
-        
+
                 m_CommandBuffer.SetGlobalMatrix(Uniforms._StarburstTransform, starburstTansform);
-        
+
                 // Draw the starburst
                 m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawStarburst);
             }

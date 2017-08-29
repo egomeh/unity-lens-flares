@@ -24,6 +24,8 @@
         sampler2D _ApertureFFT;
 
         sampler2D _TransmittanceResponse;
+
+        // xyz: light RGB color, w: intensity
         float4 _LightColor;
 
         int _ApertureEdges;
@@ -32,7 +34,6 @@
         float4 _FlareColor;
 
         float _ApertureScale;
-        float _IntensityMultiplier;
 
         float2 _BlurDirection;
 
