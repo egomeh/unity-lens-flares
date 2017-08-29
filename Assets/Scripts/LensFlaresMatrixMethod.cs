@@ -1059,7 +1059,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 distanceToLight = directionToLight.magnitude;
 
                 angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
-                float angleToLightDirection = Vector3.Angle(-light.transform.forward, _camera.transform.forward);
+                float angleToLightDirection = Vector3.Angle(-light.transform.forward, directionToLight);
 
                 Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
 
