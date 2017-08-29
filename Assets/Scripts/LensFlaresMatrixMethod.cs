@@ -1079,7 +1079,6 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                 lightAttenuation = 1f / (1f + 25f * normalizedDistanceToLight * normalizedDistanceToLight);
 
                 float coneEdgeProximity = Mathf.SmoothStep(0f, 1f, (light.spotAngle * .5f - angleToLightDirection) + .5f);
-                Debug.Log("Cone: " + coneEdgeProximity);
                 lightAttenuation *= coneEdgeProximity;
             }
             else if (light.type == LightType.Directional)
