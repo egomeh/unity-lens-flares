@@ -43,7 +43,7 @@
 
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
-            float2 coord = i.texcoord * 2. - 1.;
+            float2 coord = UnityStereoScreenSpaceUVAdjust(i.texcoord, _MainTex_ST) * 2. - 1.;
 
             float polygon = PolygonShape(coord, _ApertureEdges, _Smoothing);
 
@@ -55,13 +55,13 @@
 
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
-            float d = tex2D(_ApertureTexture, i.texcoord).r;
+            float d = tex2D(_ApertureTexture, UnityStereoScreenSpaceUVAdjust(i.texcoord, _MainTex_ST)).r;
             return d * _FlareColor * Visibility();
         }
 
         half4 FlareProjectionEntranceClippingFragment(VaryingsDefault i) : SV_Target
         {
-            float d = tex2D(_ApertureTexture, i.texcoord).r;
+            float d = tex2D(_ApertureTexture, UnityStereoScreenSpaceUVAdjust(i.texcoord, _MainTex_ST)).r;
 
             float2 coord = i.texcoord * 2. - 1.;
             float clipping = 1. - length(coord - _EntranceCenterRadius.x * _Axis) / _EntranceCenterRadius.y;
@@ -72,7 +72,7 @@
 
         float4 ComposeOverlayFragment(VaryingsDefault i) : SV_Target
         {
-            return tex2D(_MainTex, i.texcoord);
+            return tex2D(_MainTex, UnityStereoScreenSpaceUVAdjust(i.texcoord, _MainTex_ST));
         }
 
         float4 GaussianBlurFragment5tap(VaryingsDefault i) : SV_Target
