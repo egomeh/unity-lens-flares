@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 [ExecuteInEditMode]
 [RequireComponent(typeof(Camera))]
 [ImageEffectAllowedInSceneView]
-public class LensFlaresMatrixMethod : MonoBehaviour
+public class LensFlares : MonoBehaviour
 {
     public static class GraphicsUtils
     {

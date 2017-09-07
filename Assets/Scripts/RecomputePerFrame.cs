@@ -2,18 +2,18 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(LensFlaresMatrixMethod))]
+[RequireComponent(typeof(LensFlares))]
 public class RecomputePerFrame : MonoBehaviour
 {
 
-    LensFlaresMatrixMethod m_FlareComponent;
+    LensFlares m_FlareComponent;
 
     bool previousPressed = false;
     bool activeMode = false;
 
     public void OnEnable()
     {
-        m_FlareComponent = GetComponent<LensFlaresMatrixMethod>();
+        m_FlareComponent = GetComponent<LensFlares>();
     }
 
     public void Update()
@@ -32,7 +32,7 @@ public class RecomputePerFrame : MonoBehaviour
 
         if (activeMode)
         {
-            LensFlaresMatrixMethod.Settings settings = m_FlareComponent.settings;
+            LensFlares.Settings settings = m_FlareComponent.settings;
             settings.apertureEdges = 5 + Time.renderedFrameCount % 2;
             m_FlareComponent.settings = settings;
         }
