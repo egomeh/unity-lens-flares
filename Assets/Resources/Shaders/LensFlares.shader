@@ -37,6 +37,10 @@
 
         float2 _BlurDirection;
 
+        // x: center of the ghost mapped to the entrance
+        // y: radius of the ghost mapped to the entrance
+        float4 _EntranceCenterRadius;
+
         half4 DrawApertureSDFFragment(VaryingsDefault i) : SV_Target
         {
             float2 coord = i.texcoord * 2. - 1.;
@@ -52,6 +56,17 @@
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
             float d = tex2D(_ApertureTexture, i.texcoord).r;
+            return d * _FlareColor * Visibility();
+        }
+
+        half4 FlareProjectionEntranceClippingFragment(VaryingsDefault i) : SV_Target
+        {
+            float d = tex2D(_ApertureTexture, i.texcoord).r;
+
+            float2 coord = i.texcoord * 2. - 1.;
+            float clipping = 1. - length(coord - _EntranceCenterRadius.x * _Axis) / _EntranceCenterRadius.y;
+            d = smin(d, saturate(clipping), .5) * d;
+
             return d * _FlareColor * Visibility();
         }
 
@@ -146,9 +161,10 @@
 
         Pass // 1
         {
+            Blend One One
             CGPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment DrawApertureSDFFragment
+            #pragma vertex VertFlareGPUProjection
+            #pragma fragment FlareProjectionEntranceClippingFragment
             ENDCG
         }
 
@@ -156,11 +172,19 @@
         {
             CGPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment GaussianBlurFragment5tap
+            #pragma fragment DrawApertureSDFFragment
             ENDCG
         }
 
         Pass // 3
+        {
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment GaussianBlurFragment5tap
+            ENDCG
+        }
+
+        Pass // 4
         {
             Blend One One
             CGPROGRAM
@@ -169,7 +193,7 @@
             ENDCG
         }
 
-        Pass // 4
+        Pass // 5
         {
             CGPROGRAM
             #pragma vertex VertDefault
@@ -177,7 +201,7 @@
             ENDCG
         }
 
-        Pass // 5
+        Pass // 6
         {
             Blend One One
             CGPROGRAM

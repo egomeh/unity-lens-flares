@@ -120,6 +120,13 @@ float smax(float a, float b, float k)
     return b + h * (diff + k * (1.0f - h));
 }
 
+float smin(float a, float b, float k)
+{
+    float diff = b - a;
+    float h = saturate(0.5 + 0.5 * diff / k);
+    return b - h * (diff + k * (1.0f - h));
+}
+
 float PolygonShape(float2 coord, int edges, float smoothing)
 {
     float distance = 0.;

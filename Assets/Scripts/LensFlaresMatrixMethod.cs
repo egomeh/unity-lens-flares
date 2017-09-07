@@ -41,6 +41,7 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         public static readonly int _SystemEntranceToAperture = Shader.PropertyToID("_SystemEntranceToAperture");
         public static readonly int _ApertureHeight = Shader.PropertyToID("_ApertureHeight");
         public static readonly int _CenterRadiusLightOffset = Shader.PropertyToID("_CenterRadiusLightOffset");
+        public static readonly int _EntranceCenterRadius = Shader.PropertyToID("_EntranceCenterRadius");
 
         // Occlusion related uniforms
         public static readonly int _VisibilityBuffer = Shader.PropertyToID("_VisibilityBuffer");
@@ -68,11 +69,11 @@ public class LensFlaresMatrixMethod : MonoBehaviour
     enum FlareShaderPasses
     {
         DrawGhost = 0,
-        DrawApertureShape = 1,
-        GaussianBlur = 2,
-        DrawStarburst = 3,
-        CenterScaleFade = 4,
-        ComposeOverlay = 5,
+        DrawApertureShape = 2,
+        GaussianBlur = 3,
+        DrawStarburst = 4,
+        CenterScaleFade = 5,
+        ComposeOverlay = 6,
     }
 
     class Ghost
@@ -447,6 +448,10 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         [Range(300f, 1000f)]
         public float antiReflectiveCoatingWavelength;
 
+        public float entranceHeight;
+
+        public bool entranceClipping;
+
         public bool disallowComputeShaders;
 
         public LightSettings[] lights;
@@ -463,7 +468,9 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                     smoothing = 0f,
                     starburstBaseSize = .2f,
                     antiReflectiveCoatingWavelength = 450f,
+                    entranceClipping = false,
                     disallowComputeShaders = false,
+                    entranceHeight = 10f,
                     lights = {},
                 };
             }
@@ -994,6 +1001,12 @@ public class LensFlaresMatrixMethod : MonoBehaviour
         m_CommandBuffer.SetRenderTarget(Uniforms._FlareCanvas);
         m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
 
+        int drawFlarePass = (int)FlareShaderPasses.DrawGhost;
+        if (settings.entranceClipping)
+        {
+            drawFlarePass += 1;
+        }
+
         if (useComputeShaders)
         {
             material.EnableKeyword("COMPUTE_OCCLUSION_QUERY");
@@ -1239,16 +1252,29 @@ public class LensFlaresMatrixMethod : MonoBehaviour
                     continue;
                 }
 
+                if (settings.entranceClipping)
+                {
+                    float E_a1 = (ghost.ma * new Vector4(settings.entranceHeight, angleToLight)).x;
+                    float E_a2 = (ghost.ma * new Vector4(-settings.entranceHeight, angleToLight)).x;
+
+                    float cnterEntrance = ((E_a1 + E_a2) * 0.5f) / settings.entranceHeight - center;
+                    float radiusEntance = (Mathf.Abs(E_a1 - E_a2) * 0.5f) / apertureHeight;
+
+                    Vector4 entranceCenterRadius = new Vector4(cnterEntrance, radiusEntance, 0f, 0f);
+
+                    m_CommandBuffer.SetGlobalVector(Uniforms._EntranceCenterRadius, entranceCenterRadius);
+                }
+
                 // Prepare shader
                 m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
                 m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, i * 2, 0f));
 
                 // Render quad with the aperture shape to the flare texture
-                m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, (int)FlareShaderPasses.DrawGhost);
+                m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, drawFlarePass);
             }
             
             // If the system supports compute shaders, the FFT texture was generated and can be drawn
-            // If not, the FFT texture is not aavailable, and will not be drawn
+            // If not, the FFT texture is not available, and will not be drawn
             if (useComputeShaders)
             {
                 // Draw the star-burst
