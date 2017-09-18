@@ -46,7 +46,7 @@ PlayerSettings:
   defaultScreenHeight: 768
   defaultScreenWidthWeb: 960
   defaultScreenHeightWeb: 600
-  m_StereoRenderingPath: 0
+  m_StereoRenderingPath: 1
   m_ActiveColorSpace: 1
   m_MTRendering: 1
   m_MobileMTRendering: 0
@@ -75,7 +75,7 @@ PlayerSettings:
   usePlayerLog: 1
   bakeCollisionMeshes: 0
   forceSingleInstance: 0
-  resizableWindow: 0
+  resizableWindow: 1
   useMacAppStoreValidation: 0
   macAppStoreCategory: public.app-category.games
   gpuSkinning: 0
@@ -279,8 +279,9 @@ PlayerSettings:
   - m_BuildTarget: Standalone
     m_Enabled: 1
     m_Devices:
-    - None
     - split
+    - None
+    - stereo
   - m_BuildTarget: Tizen
     m_Enabled: 0
     m_Devices: []
@@ -486,7 +487,7 @@ PlayerSettings:
   playerPrefsSupport: 0
   restrictedAudioUsageRights: 0
   ps4UseResolutionFallback: 0
-  ps4ReprojectionSupport: 0
+  ps4ReprojectionSupport: 1
   ps4UseAudio3dBackend: 0
   ps4SocialScreenEnabled: 0
   ps4ScriptOptimizationLevel: 3

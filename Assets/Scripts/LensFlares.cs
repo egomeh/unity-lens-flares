@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.VR;
 
 [ExecuteInEditMode]
 [RequireComponent(typeof(Camera))]
@@ -64,6 +65,9 @@ public class LensFlares : MonoBehaviour
         public static readonly int _TextureTargetI = Shader.PropertyToID("TextureTargetI");
         public static readonly int _Real = Shader.PropertyToID("_Real");
         public static readonly int _Imaginary = Shader.PropertyToID("_Imaginary");
+
+        // Debug
+        public static readonly int _DebugTexture = Shader.PropertyToID("_DebugTexture");
     }
 
     enum FlareShaderPasses
@@ -313,6 +317,7 @@ public class LensFlares : MonoBehaviour
     }
 
     Mesh m_Quad;
+
     Mesh quad
     {
         get
@@ -350,6 +355,7 @@ public class LensFlares : MonoBehaviour
     }
 
     RenderTexture m_ApertureTexture;
+
     RenderTexture apertureTexture
     {
         get
@@ -410,6 +416,21 @@ public class LensFlares : MonoBehaviour
         }
     }
 
+    int visibilityBufferSize
+    {
+        get
+        {
+            int length = settings.lights.Length * 2;
+
+            if (singlePassStereoEnabled)
+            {
+                length *= 2;
+            }
+
+            return length;
+        }
+    }
+
     ComputeBuffer m_VisibilityBuffer;
 
     ComputeBuffer visibilityBuffer
@@ -418,7 +439,7 @@ public class LensFlares : MonoBehaviour
         {
             if (m_VisibilityBuffer == null)
             {
-                m_VisibilityBuffer = new ComputeBuffer(settings.lights.Length * 2, sizeof(uint));
+                m_VisibilityBuffer = new ComputeBuffer(visibilityBufferSize, sizeof(uint));
             }
 
             return m_VisibilityBuffer;
@@ -456,6 +477,8 @@ public class LensFlares : MonoBehaviour
 
         public LightSettings[] lights;
 
+        public bool debugOcclusionQuery;
+
         public static Settings defaultSettings
         {
             get
@@ -471,7 +494,8 @@ public class LensFlares : MonoBehaviour
                     entranceClipping = false,
                     disallowComputeShaders = false,
                     entranceHeight = 10f,
-                    lights = {},
+                    lights = { },
+                    debugOcclusionQuery = false,
                 };
             }
         }
@@ -479,8 +503,12 @@ public class LensFlares : MonoBehaviour
 
     bool m_SettingsDirty;
 
+    int m_DrawcountPreviousFrame;
+    int m_DrawCountPerFrame; // used to detect single-pass stereo
+
     [SerializeField]
     Settings m_Settings = Settings.defaultSettings;
+
     public Settings settings
     {
         get { return m_Settings; }
@@ -488,6 +516,18 @@ public class LensFlares : MonoBehaviour
         {
             m_Settings = value;
             m_SettingsDirty = true;
+        }
+    }
+
+    bool singlePassStereoEnabled
+    {
+        get
+        {
+            return
+                _camera != null &&
+                _camera.stereoEnabled &&
+                _camera.targetTexture == null &&
+                m_DrawcountPreviousFrame == 1;
         }
     }
 
@@ -542,6 +582,12 @@ public class LensFlares : MonoBehaviour
             lightSetting.occlusionDiskSize = Mathf.Max(0.01f, lightSetting.occlusionDiskSize);
             lightSetting.occlusionTimeDelay = Mathf.Max(0.01f, lightSetting.occlusionTimeDelay);
         }
+    }
+
+    void LateUpdate()
+    {
+        m_DrawcountPreviousFrame = m_DrawCountPerFrame;
+        m_DrawCountPerFrame = 0;
     }
 
     static float Reflectance(float wavelength, float coating, float angle, float n1, float n2, float n3)
@@ -676,6 +722,7 @@ public class LensFlares : MonoBehaviour
             {
                 R[1, 1] = previousRefractiveIndex / refractiveIndex;
                 RInv[1, 1] = refractiveIndex / previousRefractiveIndex;
+
                 // L is identity for flat interfaces
             }
             else
@@ -842,7 +889,7 @@ public class LensFlares : MonoBehaviour
                 flareGhosts.Add(new Ghost(entranceToAperture, aperatureToSensor, n1, n2));
             }
         }
-        
+
         // *** Step 4 ***
 
         // If the aperture texture is not yet released destroy it first
@@ -905,7 +952,7 @@ public class LensFlares : MonoBehaviour
             int butterflyCount = (int)(Mathf.Log(kApertureResolution, 2f) / Mathf.Log(2f, 2f));
 
             fourierTransformShader.SetInts(Uniforms._PassParameters, butterflyCount, 1, 0, 0);
-        
+
             fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceR, m_ApertureTexture);
             fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureSourceI, fftTextures[3]);
             fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[0]);
@@ -917,14 +964,14 @@ public class LensFlares : MonoBehaviour
             fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetR, fftTextures[2]);
             fourierTransformShader.SetTexture(starburstKernel, Uniforms._TextureTargetI, fftTextures[3]);
 
-            fourierTransformShader.SetInts(Uniforms._PassParameters, new int[4] {butterflyCount, 0, 0, 0});
+            fourierTransformShader.SetInts(Uniforms._PassParameters, new int[4] { butterflyCount, 0, 0, 0 });
             fourierTransformShader.Dispatch(starburstKernel, 1, kApertureResolution, 1);
 
             material.SetTexture(Uniforms._Real, fftTextures[2]);
             material.SetTexture(Uniforms._Imaginary, fftTextures[3]);
             Graphics.Blit(null, m_ApertureFourierTransform, material, (int)FlareShaderPasses.CenterScaleFade);
 
-             // Blur the Fourier transform of the aperture slightly
+            // Blur the Fourier transform of the aperture slightly
             material.SetVector(Uniforms._BlurDirection, new Vector2(1f, 0f));
             Graphics.Blit(m_ApertureFourierTransform, fftTextures[4], material, (int)FlareShaderPasses.GaussianBlur);
 
@@ -950,7 +997,7 @@ public class LensFlares : MonoBehaviour
 
         if (m_VisibilityBuffer != null)
         {
-            if (m_VisibilityBuffer.count != settings.lights.Length * 2)
+            if (m_VisibilityBuffer.count != visibilityBufferSize)
             {
                 m_VisibilityBuffer.Dispose();
                 m_VisibilityBuffer = null;
@@ -960,9 +1007,171 @@ public class LensFlares : MonoBehaviour
         m_SettingsDirty = false;
     }
 
-    [ExecuteInEditMode]
+    // Struct that contins the data fed into the occlusion query shader
+    struct LightOcclusionInfo
+    {
+        // Light position in NDC
+        public Vector4 lightPositionScreenSpace;
+
+        // The angle between the light direction and the camera forward direction
+        public float angleToLight;
+
+        public float lightDepth;
+        public float lightAttenuation;
+        public float uvSampleRadius;
+        public Vector3 directionToLight;
+        public float distanceToLight;
+    }
+
+    LightOcclusionInfo CmputeLightOcclusionInfo(LightSettings targetLightSettings, Camera.MonoOrStereoscopicEye eye)
+    {
+        Light light = targetLightSettings.light;
+
+        LightOcclusionInfo lightOcclusionInfo = new LightOcclusionInfo()
+        {
+            lightDepth = 0f,
+        };
+
+        Matrix4x4 viewProjection = Matrix4x4.identity;
+        if (eye == Camera.MonoOrStereoscopicEye.Mono)
+        {
+            viewProjection = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+        }
+        else if (eye == Camera.MonoOrStereoscopicEye.Left)
+        {
+            var activeEye = Camera.StereoscopicEye.Left;
+            viewProjection = _camera.GetStereoProjectionMatrix(activeEye) * _camera.GetStereoViewMatrix(activeEye);
+        }
+        else if (eye == Camera.MonoOrStereoscopicEye.Right)
+        {
+            var activeEye = Camera.StereoscopicEye.Right;
+            viewProjection = _camera.GetStereoProjectionMatrix(activeEye) * _camera.GetStereoViewMatrix(activeEye);
+        }
+
+        if (light.type == LightType.Point)
+        {
+            lightOcclusionInfo.directionToLight = (light.transform.position - _camera.transform.position);
+            lightOcclusionInfo.distanceToLight = lightOcclusionInfo.directionToLight.magnitude;
+
+            lightOcclusionInfo.angleToLight = Vector3.Angle(lightOcclusionInfo.directionToLight.normalized, _camera.transform.forward);
+
+            Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
+
+            lightOcclusionInfo.lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
+
+            float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
+            float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
+            lightOcclusionInfo.lightDepth = 1f - (a + b / lightOcclusionInfo.directionToLight.magnitude);
+
+            float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
+
+            lightOcclusionInfo.uvSampleRadius = targetLightSettings.occlusionDiskSize / w;
+
+            float normalizedDistanceToLight = Mathf.Clamp01(lightOcclusionInfo.directionToLight.magnitude / light.range);
+            lightOcclusionInfo.lightAttenuation = 1f / (1f + 25f * normalizedDistanceToLight * normalizedDistanceToLight);
+        }
+        else if (light.type == LightType.Spot)
+        {
+            lightOcclusionInfo.directionToLight = (light.transform.position - _camera.transform.position);
+            lightOcclusionInfo.distanceToLight = lightOcclusionInfo.directionToLight.magnitude;
+
+            lightOcclusionInfo.angleToLight = Vector3.Angle(lightOcclusionInfo.directionToLight.normalized, _camera.transform.forward);
+            float angleToLightDirection = Vector3.Angle(-light.transform.forward, lightOcclusionInfo.directionToLight);
+
+            Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
+
+            lightOcclusionInfo.lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
+
+            float a = _camera.farClipPlane / (_camera.farClipPlane - _camera.nearClipPlane);
+            float b = _camera.farClipPlane * _camera.nearClipPlane / (_camera.nearClipPlane - _camera.farClipPlane);
+            lightOcclusionInfo.lightDepth = 1f - (a + b / lightOcclusionInfo.directionToLight.magnitude);
+
+            float w = lightPosition.x * viewProjection.m30 + lightPosition.y * viewProjection.m31 + lightPosition.z * viewProjection.m32 + viewProjection.m33;
+
+            lightOcclusionInfo.uvSampleRadius = targetLightSettings.occlusionDiskSize / w;
+
+            float normalizedDistanceToLight = Mathf.Clamp01(lightOcclusionInfo.directionToLight.magnitude / light.range);
+            lightOcclusionInfo.lightAttenuation = 1f / (1f + 25f * normalizedDistanceToLight * normalizedDistanceToLight);
+
+            float coneEdgeProximity = Mathf.SmoothStep(0f, 1f, (light.spotAngle * .5f - angleToLightDirection) + .5f);
+            lightOcclusionInfo.lightAttenuation *= coneEdgeProximity;
+        }
+        else if (light.type == LightType.Directional)
+        {
+            lightOcclusionInfo.directionToLight = -light.transform.forward.normalized;
+            lightOcclusionInfo.distanceToLight = _camera.farClipPlane;
+            lightOcclusionInfo.angleToLight = Vector3.Angle(-light.transform.forward, _camera.transform.forward);
+
+            Vector3 distantPoint = _camera.transform.position + light.transform.forward * _camera.farClipPlane;
+            lightOcclusionInfo.lightPositionScreenSpace = (_camera.projectionMatrix * _camera.worldToCameraMatrix).MultiplyPoint(distantPoint);
+
+            lightOcclusionInfo.uvSampleRadius = targetLightSettings.occlusionDiskSize;
+            lightOcclusionInfo.lightAttenuation = 1f;
+        }
+
+        return lightOcclusionInfo;
+    }
+
+    void ResolveOcclusion(LightOcclusionInfo lightOcclusionInfo, int visibilityBufferOffset, int occlusionQueryKernel)
+    {
+        float sampleRadiusPixels = Mathf.Max(lightOcclusionInfo.uvSampleRadius * Screen.width, 7f);
+
+        int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels) / Mathf.Log(2))));
+
+        // x: sample radius, y: number of samples in each dimension, z: The offset into the occlusion buffer
+        Vector4 occlusionSamplingParams = new Vector4(lightOcclusionInfo.uvSampleRadius, occlusionSamples, visibilityBufferOffset, 0f);
+
+        // x, y: light in 0-1 UV coordinates, z: light depth
+        Vector4 lightParams = new Vector4(lightOcclusionInfo.lightPositionScreenSpace.x, lightOcclusionInfo.lightPositionScreenSpace.y, lightOcclusionInfo.lightDepth, 0f);
+
+        lightOcclusionInfo.uvSampleRadius = Mathf.Max(lightOcclusionInfo.uvSampleRadius, 4f / Screen.width);
+
+        // x: width, y: height, z: width / height
+        Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect * (singlePassStereoEnabled ? 2f : 1f), 0f);
+
+        // x: x sample stretch for depth buffer in VR
+        Vector4 depthbufferSampleOffset = new Vector4(1f, 1f, 0f, 0f);
+                
+        m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
+
+        if (_camera.stereoActiveEye != Camera.MonoOrStereoscopicEye.Mono)
+        {
+            if (singlePassStereoEnabled)
+            {
+                lightParams.x *= .5f;
+                lightParams.x -= .5f;
+            }
+            else
+            {
+                depthbufferSampleOffset.x = .5f;
+            }
+        }
+
+        if (!Application.isPlaying)
+        {
+            depthbufferSampleOffset.w -= 20f;
+        }
+
+        m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
+
+        if (settings.debugOcclusionQuery)
+        {
+            m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", Uniforms._DebugTexture);
+        }
+
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
+        m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthbufferSampleOffset", depthbufferSampleOffset);
+
+        m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+    }
+
+[ExecuteInEditMode]
     void OnPreRender()
     {
+        ++m_DrawCountPerFrame;
+
         if (m_SettingsDirty)
         {
             Prepare();
@@ -991,9 +1200,18 @@ public class LensFlares : MonoBehaviour
         float apertureHeight = focalLenghth / settings.aperture;
 
         int canvasWidth = Screen.width / (settings.flareBufferDivision + 1);
+        // canvasWidth = VRSettings.eyeTextureWidth / (settings.flareBufferDivision + 1);
         int canvasHeight = Screen.height / (settings.flareBufferDivision + 1);
+        // canvasHeight = VRSettings.eyeTextureHeight / (settings.flareBufferDivision + 1);
 
         m_CommandBuffer.GetTemporaryRT(Uniforms._FlareCanvas, canvasWidth, canvasHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+
+        if (settings.debugOcclusionQuery)
+        {
+            m_CommandBuffer.GetTemporaryRT(Uniforms._DebugTexture, Screen.width, Screen.height, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default, 1, true);
+            m_CommandBuffer.SetRenderTarget(Uniforms._DebugTexture);
+            m_CommandBuffer.ClearRenderTarget(true, true, Color.black);
+        }
 
         RenderTargetIdentifier screenBufferIdentifier = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
 
@@ -1011,7 +1229,7 @@ public class LensFlares : MonoBehaviour
         {
             material.EnableKeyword("COMPUTE_OCCLUSION_QUERY");
 
-            visibilityBuffer.SetData(new uint[2 * settings.lights.Length]);
+            visibilityBuffer.SetData(new uint[visibilityBufferSize]);
 
             material.SetTexture(Uniforms._ApertureFFTTexture, apertureFourierTransform);
             material.SetBuffer(Uniforms._VisibilityBuffer, visibilityBuffer);
@@ -1020,6 +1238,12 @@ public class LensFlares : MonoBehaviour
         {
             material.DisableKeyword("COMPUTE_OCCLUSION_QUERY");
         }
+
+        // Offset into the visibility buffer
+        // During normal rendering and multi pass stereoscopic rendering, this increases by two for each light
+        // However, when single pass stereoscopic rendering is enabled, the occlusion query must be triggered
+        // and the index in the visibility buffer should be moved an additional slot in such case. 
+        int visibilityBufferOffset = 0;
 
         for (int i = 0; i < settings.lights.Length; ++i)
         {
@@ -1031,6 +1255,7 @@ public class LensFlares : MonoBehaviour
                 continue;
             }
 
+            /*
             // Light position in NDC
             Vector4 lightPositionScreenSpace = new Vector4(0f, 0f, 0f, 0f);
 
@@ -1038,10 +1263,27 @@ public class LensFlares : MonoBehaviour
             float angleToLight;
 
             float lightDepth = 0f;
-            float lightAttenuation = 1f;
+            float lightAttenuation;
             float uvSampleRadius;
             Vector3 directionToLight;
             float distanceToLight;
+
+            Matrix4x4 viewProjection = Matrix4x4.identity;
+            if (_camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Mono)
+            {
+                viewProjection = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            }
+            else if (_camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Left)
+            {
+                var activeEye = Camera.StereoscopicEye.Left;
+                viewProjection = _camera.GetStereoProjectionMatrix(activeEye) * _camera.GetStereoViewMatrix(activeEye);
+            }
+            else if (_camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right)
+            {
+                var activeEye = Camera.StereoscopicEye.Right;
+                viewProjection = _camera.GetStereoProjectionMatrix(activeEye) * _camera.GetStereoViewMatrix(activeEye);
+            }
+
             if (light.type == LightType.Point)
             {
                 directionToLight = (light.transform.position - _camera.transform.position);
@@ -1050,8 +1292,6 @@ public class LensFlares : MonoBehaviour
                 angleToLight = Vector3.Angle(directionToLight.normalized, _camera.transform.forward);
 
                 Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
-
-                Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
 
                 lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
 
@@ -1075,8 +1315,6 @@ public class LensFlares : MonoBehaviour
                 float angleToLightDirection = Vector3.Angle(-light.transform.forward, directionToLight);
 
                 Vector3 lightPosition = new Vector4(light.transform.position.x, light.transform.position.y, light.transform.position.z, 1f);
-
-                Matrix4x4 viewProjection = (_camera.projectionMatrix * _camera.worldToCameraMatrix);
 
                 lightPositionScreenSpace = viewProjection.MultiplyPoint(lightPosition);
 
@@ -1111,57 +1349,100 @@ public class LensFlares : MonoBehaviour
                 // If the light is not point, directional or spot light, skip it.
                 continue;
             }
+            */
+
+            LightOcclusionInfo lightOcclusionInfo = CmputeLightOcclusionInfo(settings.lights[i], _camera.stereoActiveEye);
 
             // If the camera is looking away from the light, or the light is too dim skip it.
-            if (angleToLight > 90f)
+            if (lightOcclusionInfo.angleToLight > 90f)
             {
                 continue;
             }
 
             // Axis in screen space that intersects the center of the screen and the light projected.
             // in screen in NDC
-            Vector2 axis = new Vector2(lightPositionScreenSpace.x, lightPositionScreenSpace.y);
+            Vector2 axis = new Vector2(lightOcclusionInfo.lightPositionScreenSpace.x, lightOcclusionInfo.lightPositionScreenSpace.y);
             axis.Normalize();
             axis.y = -axis.y;
 
-            angleToLight *= Mathf.Deg2Rad;
+            lightOcclusionInfo.angleToLight *= Mathf.Deg2Rad;
 
             if (useComputeShaders)
             {
                 // Resolve occlusion
                 int occlusionQueryKernel = occlusionQueryShader.FindKernel("OcclusionQuery");
 
-                float sampleRadiusPixels = Mathf.Max(uvSampleRadius * Screen.width, 7f);
+                // ResolveOcclusion(lightOcclusionInfo, visibilityBufferOffset, occlusionQueryKernel);
+                // visibilityBufferOffset += 2;
+                
+                float sampleRadiusPixels = Mathf.Max(lightOcclusionInfo.uvSampleRadius * Screen.width, 7f);
 
                 int occlusionSamples = 2 * Mathf.CeilToInt(Mathf.Pow(2f, Mathf.Ceil(Mathf.Log(sampleRadiusPixels) / Mathf.Log(2))));
 
-                // x, y: light in 0-1 UV coordinates, z: light depth
-                Vector4 lightParams = new Vector4(lightPositionScreenSpace.x, lightPositionScreenSpace.y, lightDepth, 0f);
-
                 // x: sample radius, y: number of samples in each dimension, z: The offset into the occlusion buffer
-                Vector4 occlusionSamplingParams = new Vector4(uvSampleRadius, occlusionSamples, i * 2, 0f);
+                Vector4 occlusionSamplingParams = new Vector4(lightOcclusionInfo.uvSampleRadius, occlusionSamples, visibilityBufferOffset, 0f);
+
+                // x, y: light in 0-1 UV coordinates, z: light depth
+                Vector4 lightParams = new Vector4(lightOcclusionInfo.lightPositionScreenSpace.x, lightOcclusionInfo.lightPositionScreenSpace.y, lightOcclusionInfo.lightDepth, 0f);
+
+                lightOcclusionInfo.uvSampleRadius = Mathf.Max(lightOcclusionInfo.uvSampleRadius, 4f / Screen.width);
 
                 // x: width, y: height, z: width / height
-                Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect, 0f);
+                Vector4 dimensionParams = new Vector4(Screen.width, Screen.height, _camera.aspect * (singlePassStereoEnabled ? 2f : 1f), 0f);
 
-                // m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", debugTexture);
+                // x: x sample stretch for depth buffer in VR
+                Vector4 depthbufferSampleOffset = new Vector4(1f, 1f, 0f, 0f);
+                
                 m_CommandBuffer.SetComputeBufferParam(occlusionQueryShader, occlusionQueryKernel, "_Visibility", visibilityBuffer);
 
+                if (_camera.stereoActiveEye != Camera.MonoOrStereoscopicEye.Mono)
+                {
+                    if (singlePassStereoEnabled)
+                    {
+                        lightParams.x *= .5f;
+                        lightParams.x -= .5f;
+                    }
+                    else
+                    {
+                        depthbufferSampleOffset.x = .5f;
+                    }
+                }
+
+                if (!Application.isPlaying)
+                {
+                    depthbufferSampleOffset.w -= 20f;
+                }
+
                 m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_CameraDepthTexture", BuiltinRenderTextureType.ResolvedDepth);
-                m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_FlareTexture", Uniforms._FlareCanvas);
+
+                if (settings.debugOcclusionQuery)
+                {
+                    m_CommandBuffer.SetComputeTextureParam(occlusionQueryShader, occlusionQueryKernel, "_DebugTexture", Uniforms._DebugTexture);
+                }
+
                 m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthTextureDimensions", dimensionParams);
                 m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_LightPosition", lightParams);
                 m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_SamplingParams", occlusionSamplingParams);
+                m_CommandBuffer.SetComputeVectorParam(occlusionQueryShader, "_DepthbufferSampleOffset", depthbufferSampleOffset);
 
                 m_CommandBuffer.DispatchCompute(occlusionQueryShader, occlusionQueryKernel, occlusionSamples / 8, occlusionSamples / 8, 1);
+                
+
+                // In case of stereoscopic single pass rendering, the occlusion query must be run for the
+                // right eye as well
+                if (singlePassStereoEnabled && useComputeShaders)
+                {
+                }
             }
             else
             {
+                // In case compute shaders are not available, fall back to timer based approach
+
                 // The how much to change the occlusion timer
                 float occlusionTimerDelta = Time.deltaTime / settings.lights[i].occlusionTimeDelay;
 
                 // Check if the light is occluded by an obstacle
-                if (Physics.Raycast(transform.position, directionToLight, distanceToLight))
+                if (Physics.Raycast(transform.position, lightOcclusionInfo.directionToLight, lightOcclusionInfo.distanceToLight))
                 {
                     settings.lights[i].occlusionTimer -= occlusionTimerDelta;
                 }
@@ -1178,14 +1459,14 @@ public class LensFlares : MonoBehaviour
 
             // This should be clipped to avoid the critical angle of the lens system.
             // TODO: Find tighter bound for clipping
-            float angle = Mathf.Min(.4f, angleToLight);
+            float angle = Mathf.Min(.4f, lightOcclusionInfo.angleToLight);
 
             // Set all uniforms that are shared among all flares.
             material.SetTexture(Uniforms._ApertureTexture, apertureTexture);
             material.SetMatrix(Uniforms._SystemEntranceToAperture, lensSystem.entranceToAperture);
 
             Color lightColor = light.color;
-            lightColor.a = light.intensity * lightAttenuation;
+            lightColor.a = light.intensity * lightOcclusionInfo.lightAttenuation;
             m_CommandBuffer.SetGlobalColor(Uniforms._LightColor, lightColor);
             m_CommandBuffer.SetGlobalFloat(Uniforms._ApertureHeight, apertureHeight);
             m_CommandBuffer.SetGlobalVector(Uniforms._Axis, axis);
@@ -1196,14 +1477,14 @@ public class LensFlares : MonoBehaviour
             foreach (Ghost ghost in flareGhosts)
             {
                 // Aperture projected onto the entrance
-                float H_e1 = (apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
-                float H_e2 = (-apertureHeight - ghost.ma.m01 * angleToLight) / ghost.ma.m00;
+                float H_e1 = (apertureHeight - ghost.ma.m01 * lightOcclusionInfo.angleToLight) / ghost.ma.m00;
+                float H_e2 = (-apertureHeight - ghost.ma.m01 * lightOcclusionInfo.angleToLight) / ghost.ma.m00;
 
                 Matrix4x4 msma = ghost.ms * ghost.ma;
 
                 // Map to sensor plane
-                float H_p1 = (msma * new Vector4(H_e1, angleToLight, 0f, 0f)).x;
-                float H_p2 = (msma * new Vector4(H_e2, angleToLight, 0f, 0f)).x;
+                float H_p1 = (msma * new Vector4(H_e1, lightOcclusionInfo.angleToLight, 0f, 0f)).x;
+                float H_p2 = (msma * new Vector4(H_e2, lightOcclusionInfo.angleToLight, 0f, 0f)).x;
 
                 // Project on to image circle
                 H_p1 /= k_SensorSize / 2f;
@@ -1227,7 +1508,7 @@ public class LensFlares : MonoBehaviour
                 // This line is gives better intensity ranges, but does not appear correct in a physical context.
                 intensity = intensity / Mathf.Pow(2f * radius * settings.aperture, 2f);
 
-                intensity = Mathf.Min(intensity * Mathf.Clamp01(1f - angleToLight), 100f);
+                intensity = Mathf.Min(intensity * Mathf.Clamp01(1f - lightOcclusionInfo.angleToLight), 100f);
 
                 // TODO: Figure out what exactly this means.
                 float d = settings.antiReflectiveCoatingWavelength / 4f / ghost.n1;
@@ -1238,7 +1519,7 @@ public class LensFlares : MonoBehaviour
                 flareColor.r = Reflectance(kWavelengthRed, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.g = Reflectance(kWavelengthGreen, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
                 flareColor.b = Reflectance(kWavelengthBlue, d, angle, ghost.n1, Mathf.Max(Mathf.Sqrt(ghost.n1 * ghost.n2), 1.38f), ghost.n2);
-                flareColor *= intensity * light.color * light.intensity * lightAttenuation;
+                flareColor *= intensity * lightColor * lightColor.a;
 
                 // If the ghost contributes less than a certain threshold, do not draw it
                 if (flareColor.maxColorComponent < 2e-3f)
@@ -1251,11 +1532,11 @@ public class LensFlares : MonoBehaviour
                 {
                     continue;
                 }
-
+                
                 if (settings.entranceClipping)
                 {
-                    float E_a1 = (ghost.ma * new Vector4(settings.entranceHeight, angleToLight)).x;
-                    float E_a2 = (ghost.ma * new Vector4(-settings.entranceHeight, angleToLight)).x;
+                    float E_a1 = (ghost.ma * new Vector4(settings.entranceHeight, lightOcclusionInfo.angleToLight)).x;
+                    float E_a2 = (ghost.ma * new Vector4(-settings.entranceHeight, lightOcclusionInfo.angleToLight)).x;
 
                     float cnterEntrance = ((E_a1 + E_a2) * 0.5f) / settings.entranceHeight - center;
                     float radiusEntance = (Mathf.Abs(E_a1 - E_a2) * 0.5f) / apertureHeight;
@@ -1267,7 +1548,7 @@ public class LensFlares : MonoBehaviour
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
-                m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, i * 2, 0f));
+                m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, visibilityBufferOffset, 0f));
 
                 // Render quad with the aperture shape to the flare texture
                 m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, drawFlarePass);
@@ -1278,7 +1559,7 @@ public class LensFlares : MonoBehaviour
             if (useComputeShaders)
             {
                 // Draw the star-burst
-                Vector3 toLight = new Vector3(lightPositionScreenSpace.x, -lightPositionScreenSpace.y, 0f);
+                Vector3 toLight = new Vector3(lightOcclusionInfo.lightPositionScreenSpace.x, -lightOcclusionInfo.lightPositionScreenSpace.y, 0f);
 
                 float starburstScale = settings.starburstBaseSize;
                 Matrix4x4 starburstTansform = Matrix4x4.Scale(new Vector3(starburstScale, starburstScale * _camera.aspect, 1f));
@@ -1294,6 +1575,12 @@ public class LensFlares : MonoBehaviour
         // Draw the flare canvas onto the screen
         // m_CommandBuffer.SetGlobalTexture(Uniforms._FlareTexture, Uniforms._FlareCanvas);
         m_CommandBuffer.Blit(Uniforms._FlareCanvas, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay);
+
+        if (settings.debugOcclusionQuery)
+        {
+            m_CommandBuffer.Blit(Uniforms._DebugTexture, screenBufferIdentifier, material, (int)FlareShaderPasses.ComposeOverlay + 1);
+            m_CommandBuffer.ReleaseTemporaryRT(Uniforms._DebugTexture);
+        }
 
         // End and release temporaries
         m_CommandBuffer.ReleaseTemporaryRT(Uniforms._FlareCanvas);

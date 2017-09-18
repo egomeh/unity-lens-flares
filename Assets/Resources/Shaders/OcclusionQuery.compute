@@ -6,8 +6,9 @@ static const float PI = 3.14159265f;
 
 CBUFFER_START(Params)
     float4 _LightPosition; // x, y: light in 0-1 UV coordinates, z: light depth
-    float4 _SamplingParams; // x: depth threshold, y: sample radius, z: number of samples in each dimension, z: Offset in visibility buffer
+    float4 _SamplingParams; // x: sampling radius in UV space, y: number of samples in each dimension, z: Offset in visibility buffer
     float4 _DepthTextureDimensions; // x: width, y: height, z: width / height
+    float4 _DepthbufferSampleOffset; // xy: depth sampling scale, zw: depth sampling offset
 CBUFFER_END
 
 Texture2D<float> _CameraDepthTexture : register(t0);
@@ -15,7 +16,7 @@ SamplerState sampler_CameraDepthTexture;
 
 RWStructuredBuffer<uint> _Visibility : register(u0);
 
-RWTexture2D<float> _FlareTexture  : register(u1);
+RWTexture2D<float4> _DebugTexture  : register(u1);
 
 [numthreads(8, 8, 1)]
 void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThreadId : SV_GroupThreadID)
@@ -36,10 +37,13 @@ void OcclusionQuery(uint2 dispatchThreadId : SV_DispatchThreadID, uint2 groupThr
     float2 onScreenXY = 1. - (step(0., sampleTexcoord) - step(sampleTexcoord, 1.));
     uint onScreen = onScreenXY.x * onScreenXY.y;
 
-    float depth = _CameraDepthTexture[samplingPosition];
+    float depth = _CameraDepthTexture[samplingPosition * _DepthbufferSampleOffset.xy + _DepthbufferSampleOffset.zw];
     uint visible = step(depth, _LightPosition.z) * onScreen;
 
     uint visibilityBufferOffset = _SamplingParams.z;
+
+    _DebugTexture[samplingPosition] = float4(1. - inSampleDisk, inSampleDisk * visible, inSampleDisk * (1. - visible), 1.) * .5;
+    // _DebugTexture[samplingPosition] = float4(depth, 0., 0., 1.);
 
     // Write whether the pixel is visible
     InterlockedAdd(_Visibility[visibilityBufferOffset], visible * inSampleDisk);

@@ -107,7 +107,7 @@ float Visibility()
     float visiblePixels = _VisibilityBuffer[visibilityBufferOffset];
     float countingPixels = max(1., _VisibilityBuffer[visibilityBufferOffset + 1u]);
 
-    return visiblePixels / countingPixels;
+    return (visiblePixels / countingPixels);
 #else
     return _OcclusionFactor;
 #endif

@@ -10,6 +10,7 @@
         Blend Off
         CGINCLUDE
         #pragma multi_compile __ COMPUTE_OCCLUSION_QUERY
+        #pragma multi_compile __ SINGLE_PASS_STEREOSCOPIC
         #pragma target 3.0
 
         #include "LensFlares.cginc"
@@ -32,6 +33,7 @@
         float _Smoothing;
 
         float4 _FlareColor;
+        float _StarburstIntnsity;
 
         float _ApertureScale;
 
@@ -56,7 +58,7 @@
         half4 FlareProjectionFragment(VaryingsDefault i) : SV_Target
         {
             float d = tex2D(_ApertureTexture, UnityStereoScreenSpaceUVAdjust(i.texcoord, _MainTex_ST)).r;
-            return d * _FlareColor * Visibility();
+        return d * _FlareColor * Visibility();
         }
 
         half4 FlareProjectionEntranceClippingFragment(VaryingsDefault i) : SV_Target
@@ -204,6 +206,15 @@
         Pass // 6
         {
             Blend One One
+            CGPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment ComposeOverlayFragment
+            ENDCG
+        }
+
+        Pass // 6
+        {
+            Blend One One//SrcAlpha OneMinusSrcAlpha
             CGPROGRAM
             #pragma vertex VertDefault
             #pragma fragment ComposeOverlayFragment
