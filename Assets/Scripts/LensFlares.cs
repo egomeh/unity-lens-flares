@@ -1257,6 +1257,15 @@ public class LensFlares : MonoBehaviour
             material.DisableKeyword("COMPUTE_OCCLUSION_QUERY");
         }
 
+        if (singlePassStereoEnabled)
+        {
+            material.EnableKeyword("SINGLE_PASS_STEREOSCOPIC");
+        }
+        else
+        {
+            material.DisableKeyword("SINGLE_PASS_STEREOSCOPIC");
+        }
+
         int visibilityBufferStride = 2;
         if (singlePassStereoEnabled)
         {
@@ -1296,14 +1305,14 @@ public class LensFlares : MonoBehaviour
 
                 int occlusionQueryKernel = occlusionQueryShader.FindKernel(kernelName);
 
-                ResolveOcclusion(lightOcclusionInfo, 0, occlusionQueryKernel, _camera.stereoActiveEye);
+                ResolveOcclusion(lightOcclusionInfo, i * visibilityBufferStride, occlusionQueryKernel, _camera.stereoActiveEye);
 
                 // In case of stereoscopic single pass rendering, the occlusion query must be run for the
                 // right eye as well
                 if (singlePassStereoEnabled && useComputeShaders)
                 {
                     LightOcclusionInfo lightOcclusionInfoRight = CmputeLightOcclusionInfo(settings.lights[i], Camera.MonoOrStereoscopicEye.Right);
-                    ResolveOcclusion(lightOcclusionInfoRight, 2, occlusionQueryKernel, Camera.MonoOrStereoscopicEye.Right);
+                    ResolveOcclusion(lightOcclusionInfoRight, i * visibilityBufferStride + 2, occlusionQueryKernel, Camera.MonoOrStereoscopicEye.Right);
                 }
             }
             else

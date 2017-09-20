@@ -104,6 +104,10 @@ float Visibility()
 #if defined(COMPUTE_OCCLUSION_QUERY)
     uint visibilityBufferOffset = _CenterRadiusLightOffset.z;
 
+#if defined(SINGLE_PASS_STEREOSCOPIC)
+    visibilityBufferOffset += 2u * unity_StereoEyeIndex;
+#endif
+
     float visiblePixels = _VisibilityBuffer[visibilityBufferOffset];
     float countingPixels = max(1., _VisibilityBuffer[visibilityBufferOffset + 1u]);
 

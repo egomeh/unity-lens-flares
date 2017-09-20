@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028334, g: 0.2257134, b: 0.30692226, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028417, g: 0.22571458, b: 0.30692312, a: 1}
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
@@ -433,7 +433,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 78709371}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.726, y: -0.027165312, z: -3.172}
+  m_LocalPosition: {x: 2.89, y: -0.027165312, z: -2.43}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -676,7 +676,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 472477435}
   m_LocalRotation: {x: -0.0031355326, y: -0.47574753, z: 0.029253425, w: 0.8790897}
-  m_LocalPosition: {x: 2.488, y: 2.263, z: -1.175}
+  m_LocalPosition: {x: 2.68, y: -1.74, z: -1.04}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children:
   - {fileID: 221210960}
@@ -838,7 +838,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 779093784}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.8, y: -0.027165312, z: 2.3}
+  m_LocalPosition: {x: 3.26, y: -0.027165312, z: 1.22}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -992,7 +992,7 @@ Light:
   serializedVersion: 8
   m_Type: 2
   m_Color: {r: 0.9264706, g: 0.8569383, b: 0.67441607, a: 1}
-  m_Intensity: 1
+  m_Intensity: 1.93
   m_Range: 42.02
   m_SpotAngle: 34
   m_CookieSize: 10
@@ -1039,7 +1039,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 1751897765}
   m_LocalRotation: {x: -0.0031355326, y: -0.47574753, z: 0.029253425, w: 0.8790897}
-  m_LocalPosition: {x: 2.591, y: 0.1456685, z: -1.104}
+  m_LocalPosition: {x: 3.11, y: -0.74, z: 0.53}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children:
   - {fileID: 362144734}
@@ -1137,21 +1137,21 @@ MonoBehaviour:
     air: 1
     refractiveIndex: 0
   m_Settings:
-    aperture: 2.4
+    aperture: 4
     flareBufferDivision: 1
     apertureEdges: 6
-    smoothing: 0.159
-    starburstBaseSize: 0.22
+    smoothing: 0.091
+    starburstBaseSize: 0.194
     antiReflectiveCoatingWavelength: 752
     entranceHeight: 10
     entranceClipping: 1
     disallowComputeShaders: 0
     lights:
     - light: {fileID: 1751897766}
-      occlusionDiskSize: 0.3
+      occlusionDiskSize: 0.03
       occlusionTimeDelay: 0.5
     - light: {fileID: 472477436}
-      occlusionDiskSize: 0.3
+      occlusionDiskSize: 0.03
       occlusionTimeDelay: 0.5
     debugOcclusionQuery: 1
 --- !u!81 &1764788230
@@ -1183,8 +1183,8 @@ Camera:
   m_GameObject: {fileID: 1764788228}
   m_Enabled: 1
   serializedVersion: 2
-  m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_ClearFlags: 2
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
   m_NormalizedViewPortRect:
     serializedVersion: 2
     x: 0
