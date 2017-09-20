@@ -430,10 +430,7 @@ public class LensFlares : MonoBehaviour
             if (singlePassStereoEnabled)
             {
                 length *= 2;
-                return 4;
             }
-
-            return 4;
 
             return length;
         }
@@ -1260,11 +1257,11 @@ public class LensFlares : MonoBehaviour
             material.DisableKeyword("COMPUTE_OCCLUSION_QUERY");
         }
 
-        // Offset into the visibility buffer
-        // During normal rendering and multi pass stereoscopic rendering, this increases by two for each light
-        // However, when single pass stereoscopic rendering is enabled, the occlusion query must be triggered
-        // and the index in the visibility buffer should be moved an additional slot in such case. 
-        int visibilityBufferOffset = 0;
+        int visibilityBufferStride = 2;
+        if (singlePassStereoEnabled)
+        {
+            visibilityBufferStride = 4;
+        }
 
         for (int i = 0; i < settings.lights.Length; ++i)
         {
@@ -1423,7 +1420,7 @@ public class LensFlares : MonoBehaviour
 
                 // Prepare shader
                 m_CommandBuffer.SetGlobalColor(Uniforms._FlareColor, flareColor);
-                m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, visibilityBufferOffset, 0f));
+                m_CommandBuffer.SetGlobalVector(Uniforms._CenterRadiusLightOffset, new Vector4(center, radius, i * visibilityBufferStride, 0f));
 
                 // Render quad with the aperture shape to the flare texture
                 m_CommandBuffer.DrawMesh(quad, Matrix4x4.identity, material, 0, drawFlarePass);
